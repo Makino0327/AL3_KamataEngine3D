@@ -9,8 +9,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	using namespace KamataEngine;	
 
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
-
 	GameScene* gameScene = new GameScene();
+
+	gameScene->Initialize();
 
 	while (true) {
 		if (KamataEngine::Update())
@@ -18,13 +19,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			break;
 		}
 
-		gameScene->Initialize();
-
 		gameScene->Update();
 
-		gameScene->Draw();
-
 		dxCommon->PreDraw();
+
+		gameScene->Draw();
 
 		dxCommon->PostDraw();
 	}
