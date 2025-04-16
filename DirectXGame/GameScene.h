@@ -1,14 +1,19 @@
 #pragma once
 #include "KamataEngine.h"
 class GameScene {
-public:
-
+private:
 	uint32_t textureHandle_ = 0;
-	KamataEngine::Sprite* sprite_ = nullptr;
+	float inputFloat3[3] = {0, 0, 0};
+
+public:
+	KamataEngine::Model* model_ = nullptr;
+	KamataEngine::WorldTransform worldTransform_;
+	KamataEngine::Camera camera_;
+	KamataEngine::DebugCamera* debugCamera_ = nullptr;
 
 public:
 
-	~GameScene();
+	~GameScene() ;
 
 	void Initialize();
 
