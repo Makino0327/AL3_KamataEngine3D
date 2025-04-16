@@ -1,30 +1,41 @@
 #include "GameScene.h"
+
 using namespace KamataEngine;
 
 void GameScene::Initialize() {
 	textureHandle_ = TextureManager::Load("tex1.png");
-	sprite_ = Sprite::Create(textureHandle_, {100, 50});
+	model_ = Model::Create();
+	worldTransform_.Initialize();
+	camera_.Initialize();
+	PrimitiveDrawer::GetInstance()->SetCamera(&camera_);
+	debugCamera_ = new DebugCamera(1280,720);
+
+	AxisIndicator::GetInstance()->SetVisible(true);
+	AxisIndicator::GetInstance()->SetTargetCamera(&debugCamera_->GetCamera());
 }
 
 void GameScene::Update() {
-	Vector2 position = sprite_->GetPosition();
-	position.x += 2.0f;
-	position.y += 1.0f;
-
-	sprite_->SetPosition(position);
-
+	ImGui::Begin("Debug1");
+	ImGui::InputFloat3("InputFloat3", inputFloat3);
+	ImGui::Text("KamataTarou%d%d%d", 2050, 12, 31);
+	ImGui::SliderFloat("SliderFloat3", inputFloat3, 0.0f, 1.0f);
+	ImGui::End();
+	ImGui::ShowDemoWindow();
+	debugCamera_->Update();
 }
 
 void GameScene::Draw() {
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
-	Sprite::PreDraw(dxCommon->GetCommandList());
 
-	sprite_->Draw();
+	Model::PreDraw(dxCommon->GetCommandList());
 
-	Sprite::PostDraw();
+	model_->Draw(worldTransform_, debugCamera_->GetCamera(), textureHandle_);
+
+	Model::PostDraw();
 }
 
 GameScene::~GameScene() 
 {
-	delete sprite_;
+	delete model_;
+	delete debugCamera_;
 }
