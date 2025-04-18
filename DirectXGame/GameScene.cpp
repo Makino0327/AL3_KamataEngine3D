@@ -19,7 +19,11 @@ void GameScene::Update() {
 }
 
 void GameScene::Draw() {
+	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
+	Model::PreDraw(dxCommon->GetCommandList());
 	player_->Draw(); 
+	Model::PostDraw();
+
 }
 
 GameScene::~GameScene() {
