@@ -12,6 +12,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	ImGuiManager* imguiManager = ImGuiManager::GetInstance();
 	GameScene* gameScene = new GameScene();
 
+	GameScene* gameScene = new GameScene();
 	gameScene->Initialize();
 
 	while (true) {
@@ -20,19 +21,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			break;
 		}
 
-		imguiManager->Begin();
 
 		gameScene->Update();
-
-		imguiManager->End();
 
 		dxCommon->PreDraw();
 
 		gameScene->Draw();
-
-		AxisIndicator::GetInstance()->Draw();
-
-		imguiManager->Draw();
 
 		dxCommon->PostDraw();
 	}
