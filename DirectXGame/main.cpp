@@ -11,20 +11,23 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 
 	GameScene* gameScene = new GameScene();
+
 	gameScene->Initialize();
 
 	while (true) {
-		if (KamataEngine::Update())
-		{
+		if (KamataEngine::Update()){
 			break;
 		}
-
 
 		gameScene->Update();
 
 		dxCommon->PreDraw();
 
+		Model::PreDraw(dxCommon->GetCommandList());
+
 		gameScene->Draw();
+
+		Model::PostDraw();
 
 		dxCommon->PostDraw();
 	}
