@@ -17,7 +17,8 @@ void GameScene::Initialize() {
 	const float kBlockHeight = 2.0f;
 	// テクスチャの読み込み
 	block_ = TextureManager::Load("./Resources/cube/cube.jpg");
-
+	// スカイドームの生成
+	skydome_ = new Skydome();
 	// 要素数を設定する
 	worldTransformBlocks_.resize(kNumBlockVirtical);
 	for (uint32_t i = 0; i < kNumBlockVirtical; ++i)
@@ -41,6 +42,9 @@ void GameScene::Initialize() {
 			worldTransformBlocks_[i][j]->translation_.y = kBlockHeight*i;
 		}
 	}
+	skydome_->Initialize();
+	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
+	
 }
 
 void GameScene::Update() { 
@@ -87,6 +91,7 @@ void GameScene::Draw() {
 			model_->Draw(*worldTransformBlock, camera_, block_);
 		}
 	}
+	skydome_->Draw(skydomeModel_, camera_);
 }
 
 GameScene::~GameScene()
@@ -95,6 +100,9 @@ GameScene::~GameScene()
 	delete debugCamera_;
 	// 3Dモデルデータの開放
 	delete model_;
+
+	// スカイドームの開放
+	delete skydome_;
 	// ワールドトランスフォーム開放
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_)
 	{
