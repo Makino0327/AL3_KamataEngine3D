@@ -2,6 +2,8 @@
 #include <KamataEngine.h>
 #include "GameScene.h"
 
+
+
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	KamataEngine::Initialize(L"LE2B_21_マキノ_ハルト_AL3");
@@ -13,6 +15,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	GameScene* gameScene = new GameScene();
 
 	gameScene->Initialize();
+
+
 
 	while (true) {
 		if (KamataEngine::Update()){

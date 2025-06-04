@@ -2,7 +2,7 @@
 #include "KamataEngine.h"
 #include <vector>
 #include <cmath>
-
+#include "Skydome.h"
 
 using KamataEngine::Matrix4x4;
 using KamataEngine::Vector3;
@@ -23,6 +23,9 @@ public:
 	bool isDebugCameraActive_ = false;
 	// デバックカメラ
 	KamataEngine::DebugCamera* debugCamera_ = nullptr;
+	// スカイドーム
+	Skydome *skydome_=nullptr;
+	KamataEngine::Model* skydomeModel_ = nullptr;
 
 	public:
 
