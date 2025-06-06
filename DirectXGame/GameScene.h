@@ -3,6 +3,7 @@
 #include <vector>
 #include <cmath>
 #include "Skydome.h"
+#include "MapChipField.h"
 
 using KamataEngine::Matrix4x4;
 using KamataEngine::Vector3;
@@ -26,6 +27,8 @@ public:
 	// スカイドーム
 	Skydome *skydome_=nullptr;
 	KamataEngine::Model* skydomeModel_ = nullptr;
+	// マップチップフィールド
+	MapChipField* mapChipField_;
 
 	public:
 
@@ -36,6 +39,8 @@ public:
 	void Draw();
 
 	~GameScene();
+
+	void GenerateBlocks();
 
 	// スケール行列を作る
 	Matrix4x4 MakeScaleMatrix(const Vector3& scale) {

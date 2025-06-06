@@ -109,6 +109,8 @@
     <ClCompile Include="GameScene.cpp" />
     <ClCompile Include="main.cpp" />
 
+    <ClCompile Include="MapChipField.cpp" />
+
     <ClCompile Include="Skydome.cpp" />
 
     <ClCompile Include="Player.cpp" />
@@ -191,6 +193,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GameScene.h" />
+
+    <ClInclude Include="MapChipField.h" />
 
     <ClInclude Include="Skydome.h" />
 
