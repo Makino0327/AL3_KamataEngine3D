@@ -12,7 +12,8 @@ std::unordered_map<std::string, MapChipType> mapChipTable = {
 }
 
 // マップチップデータをリセット
-void MapChipField::ResetMapChipData() {
+void MapChipField::ResetMapChipData() 
+{
 	mapChipData_.data.clear();
 	mapChipData_.data.resize(kNumBlockVirtical);
 	for (std::vector<MapChipType>& mapChipDataLine : mapChipData_.data) {
