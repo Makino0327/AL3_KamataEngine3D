@@ -1,4 +1,7 @@
 #include "GameScene.h"
+#include "imgui.h"
+#include <Windows.h>
+
 
 using namespace KamataEngine;
 
@@ -9,31 +12,42 @@ void GameScene::Initialize() {
 	camera_.Initialize();
 	// 3Dモデルデータの生成
 	model_ = Model::Create();
+	playerModel_ = Model::Create();
 	// スカイドームの生成
 	skydome_ = new Skydome();
 	// skydomeの初期化
 	skydome_->Initialize();
 	// マップチップフィールドの生成
 	mapChipField_ = new MapChipField();
+
+	player_ = new Player();
 	// ブロックの要素数
 	const uint32_t kNumBlockVirtical = 10;
 	const uint32_t kNumBlockHorizontal = 20;
 	// テクスチャの読み込み
 	block_ = TextureManager::Load("./Resources/cube/cube.jpg");
+	mapChipField_->LoadMapChipCsv("./Resources/blocks.csv");
 	// 要素数を設定する
 	worldTransformBlocks_.resize(kNumBlockVirtical);
 	for (uint32_t i = 0; i < kNumBlockVirtical; ++i)
 	{
 		worldTransformBlocks_[i].resize(kNumBlockHorizontal);
 	}
+	// 座標をマップチップ番号で指定
+	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
+	playerModel_ = Model::CreateFromOBJ("cube", true);
+	playerPosition = {2.0f, 2.0f, 0.0f};
+	player_->Initialize(playerModel_, &camera_, playerPosition);
 	
+
 	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
-	mapChipField_->LoadMapChipCsv("./Resources/blocks.csv");
 	GenerateBlocks();
 	
 }
 
 void GameScene::Update() { 
+	 float deltaTime = 1.0f / 60.0f;
+	player_->Update(deltaTime);
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
 			if (!worldTransformBlock)continue;
@@ -71,6 +85,15 @@ void GameScene::Update() {
 }
 
 void GameScene::Draw() { 
+	player_->Draw();
+	Vector3 pos = player_->GetPosition();
+
+	char buffer[256];
+	sprintf_s(buffer, "Player Pos: x=%.2f y=%.2f z=%.2f\n", pos.x, pos.y, pos.z);
+
+	// Visual Studio の「出力」ウィンドウに表示される
+	OutputDebugStringA(buffer);
+
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
 			if (!worldTransformBlock)continue;
@@ -91,6 +114,8 @@ GameScene::~GameScene()
 	delete skydomeModel_;
 	// マップチップフィールドの開放
 	delete mapChipField_;
+	delete playerModel_;
+
 
 	// ワールドトランスフォーム開放
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_)
