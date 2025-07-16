@@ -7,27 +7,46 @@
 #include <numbers>
 #include <cmath>
 #include "Vector.h"
+#include "MapChipField.h"
 
 
 using namespace KamataEngine;
-
-static inline const float kAcceleration = 0.05f; // プレイヤーの加速度
-
+static inline const float kAcceleration = 0.01f; // プレイヤーの加速度
 static inline const float kAttenuation = 0.1f; // プレイヤーの減衰率f; 
-
-static inline const float kLimitRunSpeed = 1.0f;
-
+static inline const float kLimitRunSpeed = 0.5f;
 static inline const float kTimeTurn = 0.3f;
-
 static inline const float kGravityAcceleration = 0.01f; // 重力加速度
 static inline const float kLimitFallSpeed = 0.5f;       // 限界落下速度
 static inline const float kJumpAcceleration = 0.3f;     // ジャンプ加速度
+static inline const float kWidth = 0.8f;
+static inline const float kHeight = 0.8f; // プレイヤーの高さ
 
 enum class LRDirection
 {
 	kRight,
 	kLeft,
 };
+
+// マップとの衝突判定情報
+struct CollisionInfo {
+	bool isHitTop = false;
+	bool isHitBottom = false;
+	bool isHitLeft = false;
+	bool isHitRight = false;
+	Vector3 move; // 最終的な移動量
+};
+
+enum Corner
+{
+	kRightBottom,
+	kLeftBottom,
+	kRightTop,
+	kLeftTop,
+
+	kNumCorner
+};
+
+class MapChipField;
 
 class Player {
 private:
@@ -38,12 +57,11 @@ private:
 	Vector3 velocity_ = {};
 	bool onGround_ = true;
 	bool landing = false;
-
 	float turnFirstRotationY_ = 0.0f; // 初回の回転角度
 	float turnTimer_ = 0.0f;          // 回転タイマー
-
 	float EaseInOut(float t) { return t < 0.5f ? 2.0f * t * t : -1.0f + (4.0f - 2.0f * t) * t; }
-
+	// マップチップによるフィールド
+	MapChipField* mapChipField_ = nullptr;
 
 	public:
 	const Vector3& GetPosition() const { return worldTransform_.translation_; }
@@ -70,4 +88,21 @@ public:
 	/// </summary>
 	void Draw();
 
+	void SetMapChipField(MapChipField* mapChipField) {
+		assert(mapChipField != nullptr);
+		mapChipField_ = mapChipField;
+	}
+
+	void InputMove(float deltaTime);
+
+	void CheckCollisionMap(CollisionInfo& info);
+
+	void CheckCollisionMapTop(CollisionInfo& info);
+	//void CheckCollisionMapBottom(CollisionInfo& info);
+	//void CheckCollisionMapLeft(CollisionInfo& info);
+	//void CheckCollisionMapRight(CollisionInfo& info);
+
+	Vector3 CornerPosition(const Vector3& center, Corner corner);
+	void ApplyCollisionResult(const CollisionInfo& info);
+	void CheckHitCeiling(const CollisionInfo& info);
 };

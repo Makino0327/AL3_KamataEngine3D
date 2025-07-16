@@ -8,13 +8,6 @@ class Player;
 static inline const float kInterpolationRate = 0.1f;
 static inline const float kVelocityBias = 35.0f; // カメラの移動速度のバイアス
 
-struct Rect {
-	float left = 5.0f;
-	float right = 1000.0f;
-	float bottom = 5.0f;
-	float top = 1000.0f;
-};
-
 static inline const Rect kCameraMargin = {
     -50.0f, // left
     150.0f, // right
