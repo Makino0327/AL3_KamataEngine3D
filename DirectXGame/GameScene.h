@@ -6,6 +6,7 @@
 #include "MapChipField.h"
 #include "Player.h"
 #include "Vector.h"
+#include "CameraController.h"
 
 class GameScene {
 public:
@@ -28,6 +29,7 @@ public:
 	KamataEngine::Model* skydomeModel_ = nullptr;
 	// マップチップフィールド
 	MapChipField* mapChipField_;
+	CameraController cameraController_;
 
 	// プレイヤー
 	Player* player_;

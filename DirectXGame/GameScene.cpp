@@ -2,7 +2,6 @@
 #include "imgui.h"
 #include <Windows.h>
 
-
 using namespace KamataEngine;
 
 void GameScene::Initialize() { 
@@ -19,7 +18,7 @@ void GameScene::Initialize() {
 	skydome_->Initialize();
 	// マップチップフィールドの生成
 	mapChipField_ = new MapChipField();
-
+	
 	player_ = new Player();
 	// ブロックの要素数
 	const uint32_t kNumBlockVirtical = 10;
@@ -38,7 +37,14 @@ void GameScene::Initialize() {
 	playerModel_ = Model::CreateFromOBJ("cube", true);
 	playerPosition = {2.0f, 2.0f, 0.0f};
 	player_->Initialize(playerModel_, &camera_, playerPosition);
-	
+	// Initialize に追加
+	cameraController_.SetCamera(&camera_);
+	cameraController_.SetTarget(player_);
+	cameraController_.Reset();
+
+	Rect area{};
+
+	cameraController_.SetMovableArea(area);
 
 	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
 	GenerateBlocks();
@@ -48,6 +54,9 @@ void GameScene::Initialize() {
 void GameScene::Update() { 
 	 float deltaTime = 1.0f / 60.0f;
 	player_->Update(deltaTime);
+	 cameraController_.Update();
+
+
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
 			if (!worldTransformBlock)continue;
