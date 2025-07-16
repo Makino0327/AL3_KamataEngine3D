@@ -37,6 +37,9 @@ void GameScene::Initialize() {
 	playerModel_ = Model::CreateFromOBJ("cube", true);
 	playerPosition = {2.0f, 2.0f, 0.0f};
 	player_->Initialize(playerModel_, &camera_, playerPosition);
+
+	player_->SetMapChipField(mapChipField_); // プレイヤーにマップチップフィールドを設定
+
 	// Initialize に追加
 	cameraController_.SetCamera(&camera_);
 	cameraController_.SetTarget(player_);
