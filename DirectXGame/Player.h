@@ -7,8 +7,6 @@
 #include <numbers>
 #include <cmath>
 #include "Vector.h"
-#include <algorithm>
-#include <algorithm>
 
 
 using namespace KamataEngine;
@@ -17,7 +15,7 @@ static inline const float kAcceleration = 0.05f; // プレイヤーの加速度
 
 static inline const float kAttenuation = 0.1f; // プレイヤーの減衰率f; 
 
-static inline const float kLimitRunSpeed = 0.5f;
+static inline const float kLimitRunSpeed = 1.0f;
 
 static inline const float kTimeTurn = 0.3f;
 
@@ -52,6 +50,8 @@ private:
 	const Vector3& GetVelocity() const { return velocity_; }
 
 	LRDirection lrDirection_ = LRDirection::kRight;
+
+	const KamataEngine::WorldTransform& GetWorldTransform() const { return worldTransform_; }
 
 
 public:
