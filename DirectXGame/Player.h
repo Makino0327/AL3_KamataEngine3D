@@ -18,8 +18,8 @@ static inline const float kTimeTurn = 0.3f;
 static inline const float kGravityAcceleration = 0.01f; // 重力加速度
 static inline const float kLimitFallSpeed = 0.5f;       // 限界落下速度
 static inline const float kJumpAcceleration = 0.3f;     // ジャンプ加速度
-static inline const float kWidth = 0.8f;
-static inline const float kHeight = 0.8f; // プレイヤーの高さ
+static inline const float kWidth = 1.0f;
+static inline const float kHeight = 1.0f; // プレイヤーの高さ
 
 enum class LRDirection
 {

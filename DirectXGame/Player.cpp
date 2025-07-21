@@ -16,9 +16,9 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 
 void Player::Update(float deltaTime) {
 
+	InputMove(deltaTime);
 	if (onGround_)
 	{
-		InputMove(deltaTime);
 
 		if (Input::GetInstance()->PushKey(DIK_SPACE)) {
 			velocity_.y += kJumpAcceleration;
@@ -108,6 +108,10 @@ void Player::Update(float deltaTime) {
 	// 座標の行列更新
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
+
+	DebugText::GetInstance()->ConsolePrintf("Player Pos: x=%.2f y=%.2f z=%.2f\n", worldTransform_.translation_.x, worldTransform_.translation_.y, worldTransform_.translation_.z);
+
+
 }
 
 void Player::Draw() { 
@@ -204,33 +208,27 @@ void Player::CheckCollisionMapTop(CollisionInfo& info) {
 		positionsNew[i] = CornerPosition(Add(worldTransform_.translation_, info.move), static_cast<Corner>(i));
 	}
 
-	bool hit = false;
+	bool hitLeft = false;
+	bool hitRight = false;
 
-    // 左上
-    IndexSet indexSet = mapChipField_->GetMapChipIndexByPosition(positionsNew[kLeftTop]);
-    MapChipType mapChipType = mapChipField_->GetMapChipTypeByIndex(indexSet.xIndex, indexSet.yIndex);
-    if (mapChipType == MapChipType::kBlock) {
-        hit = true;
-    }
+	// 左上
+	IndexSet leftIndex = mapChipField_->GetMapChipIndexByPosition(positionsNew[kLeftTop]);
+	if (mapChipField_->GetMapChipTypeByIndex(leftIndex.xIndex, leftIndex.yIndex) == MapChipType::kBlock) {
+		hitLeft = true;
+	}
 
-    // 右上
-    indexSet = mapChipField_->GetMapChipIndexByPosition(positionsNew[kRightTop]);
-    mapChipType = mapChipField_->GetMapChipTypeByIndex(indexSet.xIndex, indexSet.yIndex);
-    if (mapChipType == MapChipType::kBlock) {
-        hit = true;
-    }
+	// 右上
+	IndexSet rightIndex = mapChipField_->GetMapChipIndexByPosition(positionsNew[kRightTop]);
+	if (mapChipField_->GetMapChipTypeByIndex(rightIndex.xIndex, rightIndex.yIndex) == MapChipType::kBlock) {
+		hitRight = true;
+	}
 
-   if (hit) {
-		// 左上 or 右上 どちらでもOKなのでどちらかを使う（例：左上）
-		Rect rect = mapChipField_->GetRectByIndex(indexSet.xIndex, indexSet.yIndex);
+	if (hitLeft || hitRight) {
+		IndexSet useIndex = hitLeft ? leftIndex : rightIndex;
+		Rect rect = mapChipField_->GetRectByIndex(useIndex.xIndex, useIndex.yIndex);
 
-		// プレイヤーの上端（移動前）
 		float playerTopY = worldTransform_.translation_.y + kHeight / 2.0f;
-
-		// ブロック下端 - プレイヤー上端
 		info.move.y = rect.bottom - playerTopY;
-
-		// 判定フラグ
 		info.isHitTop = true;
 	}
 }

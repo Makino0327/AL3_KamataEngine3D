@@ -76,13 +76,14 @@ IndexSet MapChipField::GetMapChipIndexByPosition(const Vector3& position) {
 	Vector3 adjusted = {position.x + (kBlockWidth / 2.0f), position.y + (kBlockHeight / 2.0f), 0.0f};
 
 	IndexSet indexSet;
-	indexSet.xIndex = static_cast<uint32_t>(adjusted.x / kBlockWidth);
+	indexSet.xIndex = std::min(static_cast<uint32_t>(adjusted.x / kBlockWidth), kNumBlockHorizontal - 1);
 
 	uint32_t reverseY = static_cast<uint32_t>(adjusted.y / kBlockHeight);
-	indexSet.yIndex = kNumBlockVirtical - 1 - reverseY;
+	indexSet.yIndex = std::min(kNumBlockVirtical - 1 - reverseY, kNumBlockVirtical - 1);
 
 	return indexSet;
 }
+
 
 Rect MapChipField::GetRectByIndex(uint32_t xIndex, uint32_t yIndex) {
 	Vector3 center = GetMapChipPositionByIndex(xIndex, yIndex);
