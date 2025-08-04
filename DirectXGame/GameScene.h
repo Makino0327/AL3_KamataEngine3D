@@ -8,6 +8,7 @@
 #include "Vector.h"
 #include "CameraController.h"
 #include "Enemy.h" 
+#include "DeathParticles.h"
 
 class GameScene {
 public:
@@ -32,10 +33,13 @@ public:
 	MapChipField* mapChipField_;
 	CameraController cameraController_;
 
+	DeathParticles* deathParticles_ = nullptr;
+
+
 	// プレイヤー
 	Player* player_;
 	KamataEngine::Model* playerModel_ = nullptr;
-
+	KamataEngine::Model* particleModel_ = nullptr; // パーティクル用のモデル
 	std::list<Enemy*> enemies_; // Enemyのポインタ
 	KamataEngine::Model* enemyModel_ = nullptr; // または Model::CreateFromOBJ("enemy", true) など
 

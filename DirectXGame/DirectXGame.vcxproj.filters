@@ -35,6 +35,7 @@
     <ClCompile Include="Vector.cpp">
       <Filter>class</Filter>
     </ClCompile>
+    <ClCompile Include="DeathParticles.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CameraController.h">
@@ -58,6 +59,7 @@
     <ClInclude Include="Vector.h">
       <Filter>class</Filter>
     </ClInclude>
+    <ClInclude Include="DeathParticles.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Obj.hlsli" />

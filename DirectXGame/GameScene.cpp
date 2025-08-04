@@ -31,8 +31,6 @@ void GameScene::CheckAllCollisions() {
 #pragma endregion
 }
 
-
-
 void GameScene::Initialize() { 
 	// デバックカメラの生成
 	debugCamera_ = new DebugCamera(1280, 720);
@@ -81,10 +79,15 @@ void GameScene::Initialize() {
 	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
 	playerModel_ = Model::CreateFromOBJ("cube", true);
 	playerPosition = {2.0f, 2.0f, 0.0f};
+	particleModel_ = Model::CreateFromOBJ("particle", true);
+	// 仮の生成処理。後で条件つけて呼び出すようにする
 	
+
+
 	player_->Initialize(playerModel_, &camera_, playerPosition);            // ← テクスチャを敵に設定
 	player_->SetMapChipField(mapChipField_); // プレイヤーにマップチップフィールドを設定
-
+	deathParticles_ = new DeathParticles();
+	deathParticles_->Initialize(playerPosition, particleModel_, &camera_);
 	// Initialize に追加
 	cameraController_.SetCamera(&camera_);
 	cameraController_.SetTarget(player_);
@@ -100,6 +103,8 @@ void GameScene::Initialize() {
 }
 
 void GameScene::Update() { 
+	
+
 	 float deltaTime = 1.0f / 60.0f;
 	player_->Update(deltaTime);
 	 for (Enemy* enemy : enemies_) {
@@ -109,6 +114,10 @@ void GameScene::Update() {
 	 }
 	 cameraController_.Update();
 	 CheckAllCollisions();
+
+	 if (deathParticles_) {
+		deathParticles_->Update();
+	 }
 
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
@@ -147,6 +156,7 @@ void GameScene::Update() {
 }
 
 void GameScene::Draw() { 
+	skydome_->Draw(skydomeModel_, camera_);
 	player_->Draw();
 	for (Enemy* enemy : enemies_) {
 		if (enemy) {
@@ -155,11 +165,12 @@ void GameScene::Draw() {
 	}
 	Vector3 pos = player_->GetPosition();
 
-	char buffer[256];
-	sprintf_s(buffer, "Player Pos: x=%.2f y=%.2f z=%.2f\n", pos.x, pos.y, pos.z);
 
-	// Visual Studio の「出力」ウィンドウに表示される
-	OutputDebugStringA(buffer);
+
+	// 描画処理
+	if (deathParticles_) {
+		deathParticles_->Draw();
+	}
 
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
@@ -167,7 +178,7 @@ void GameScene::Draw() {
 			model_->Draw(*worldTransformBlock, camera_, block_);
 		}
 	}
-	skydome_->Draw(skydomeModel_, camera_);
+	
 }
 
 GameScene::~GameScene()
@@ -188,6 +199,8 @@ GameScene::~GameScene()
 	enemies_.clear();
 	delete enemyModel_;
 
+	delete deathParticles_;
+	deathParticles_ = nullptr;
 
 	// ワールドトランスフォーム開放
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_)

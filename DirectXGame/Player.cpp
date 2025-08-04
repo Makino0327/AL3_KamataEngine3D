@@ -487,7 +487,4 @@ AABB Player::GetAABB() {
 
 void Player::OnCollision(const Enemy* enemy) {
 	(void)enemy; // 未使用警告防止（後で使うかも）
-
-	// サンプル処理：被弾時にノックバックするなど
-	velocity_.y += 0.5f; // 仮処理
 }

@@ -33,3 +33,5 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotation, const 
 inline Vector3 Add(const Vector3& v1, const Vector3& v2) { return {v1.x + v2.x, v1.y + v2.y, v1.z + v2.z}; }
 
 bool IsCollisionAABB(const AABB& a, const AABB& b);
+
+Vector3 Transform(const Vector3& v, const Matrix4x4& m);
