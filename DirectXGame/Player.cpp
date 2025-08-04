@@ -19,13 +19,10 @@ void Player::Update(float deltaTime) {
 	InputMove(deltaTime);
 	if (onGround_)
 	{
-
 		if (Input::GetInstance()->PushKey(DIK_SPACE)) {
 			velocity_.y += kJumpAcceleration;
 			// ジャンプ加速度を適用
 		}
-
-		
 
 		if (velocity_.y < 0.0f) {
 			if (worldTransform_.translation_.y <= 2.0f) {
@@ -233,9 +230,11 @@ void Player::CheckCollisionMapTop(CollisionInfo& info) {
 	}
 }
 
-//void Player::CheckCollisionMapBottom(CollisionInfo& info) {
-	// 下方向の当たり判定処理を書く
-//}
+void Player::CheckCollisionMapBottom(CollisionInfo& info) {
+	if (info.move.y >= 0) {
+		return;
+	}
+}
 
 //void Player::CheckCollisionMapLeft(CollisionInfo& info) {
 	// 左方向の当たり判定処理を書く
@@ -248,7 +247,7 @@ void Player::CheckCollisionMapTop(CollisionInfo& info) {
 
 void Player::CheckCollisionMap(CollisionInfo& info) {
 	CheckCollisionMapTop(info);
-	//CheckCollisionMapBottom(info);
+	CheckCollisionMapBottom(info);
 	//CheckCollisionMapLeft(info);
 	//CheckCollisionMapRight(info);
 }

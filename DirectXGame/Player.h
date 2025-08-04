@@ -98,7 +98,7 @@ public:
 	void CheckCollisionMap(CollisionInfo& info);
 
 	void CheckCollisionMapTop(CollisionInfo& info);
-	//void CheckCollisionMapBottom(CollisionInfo& info);
+	void CheckCollisionMapBottom(CollisionInfo& info);
 	//void CheckCollisionMapLeft(CollisionInfo& info);
 	//void CheckCollisionMapRight(CollisionInfo& info);
 
