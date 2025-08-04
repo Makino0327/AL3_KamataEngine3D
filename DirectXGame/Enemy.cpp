@@ -46,3 +46,29 @@ void Enemy::Draw() {
 
 // Enemy.cpp
 void Enemy::SetTexture(uint32_t textureHandle) { textureHandle_ = textureHandle; }
+
+Vector3 Enemy::GetWorldPosition() const {
+	Vector3 worldPos;
+	worldPos.x = worldTransform_.matWorld_.m[3][0];
+	worldPos.y = worldTransform_.matWorld_.m[3][1];
+	worldPos.z = worldTransform_.matWorld_.m[3][2];
+	return worldPos;
+}
+
+
+AABB Enemy::GetAABB() const {
+	Vector3 worldPos = GetWorldPosition(); // ワールド座標を取得
+
+	AABB aabb;
+	aabb.min = {worldPos.x - 1.0f, worldPos.y - 1.0f, worldPos.z - 1.0f};
+	aabb.max = {worldPos.x + 1.0f, worldPos.y + 1.0f, worldPos.z + 1.0f};
+
+	return aabb;
+}
+
+
+void Enemy::OnCollision(const Player* player) {
+	(void)player; // 引数未使用警告を回避するためのキャスト
+
+	// 今は何も処理なし（後でHP減らす処理などをここに追加）
+}

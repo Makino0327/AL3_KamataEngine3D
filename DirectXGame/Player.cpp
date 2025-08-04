@@ -1,4 +1,5 @@
 #include "Player.h"
+#include "Enemy.h"
 
 void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const Vector3& position) {
 	assert(model);
@@ -463,4 +464,30 @@ void Player::CheckHitCeiling(const CollisionInfo& info) {
 		DebugText::GetInstance()->ConsolePrintf("hit ceiling\n");
 		velocity_.y = 0;
 	}
+}
+
+Vector3 Player::GetWorldPosition() {
+	Vector3 worldPos;
+	// ワールド行列の4列目（index[3][0-2]）から平行移動成分を取り出す
+	worldPos.x = worldTransform_.matWorld_.m[3][0];
+	worldPos.y = worldTransform_.matWorld_.m[3][1];
+	worldPos.z = worldTransform_.matWorld_.m[3][2];
+	return worldPos;
+}
+
+AABB Player::GetAABB() {
+	Vector3 worldPos = GetWorldPosition();
+
+	AABB aabb;
+	aabb.min = {worldPos.x - 2.0f, worldPos.y - 2.0f, worldPos.z - 2.0f};
+	aabb.max = {worldPos.x + 2.0f, worldPos.y + 2.0f, worldPos.z + 2.0f};
+
+	return aabb;
+}
+
+void Player::OnCollision(const Enemy* enemy) {
+	(void)enemy; // 未使用警告防止（後で使うかも）
+
+	// サンプル処理：被弾時にノックバックするなど
+	velocity_.y += 0.5f; // 仮処理
 }

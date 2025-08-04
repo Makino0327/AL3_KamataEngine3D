@@ -10,6 +10,11 @@ struct Rect {
 	float top = 1000.0f;
 };
 
+struct AABB {
+	Vector3 min;
+	Vector3 max;
+};
+
 Matrix4x4 IdentityMatrix();
 
 Matrix4x4 MakeScaleMatrix(const Vector3& scale);
@@ -27,4 +32,4 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotation, const 
 
 inline Vector3 Add(const Vector3& v1, const Vector3& v2) { return {v1.x + v2.x, v1.y + v2.y, v1.z + v2.z}; }
 
-
+bool IsCollisionAABB(const AABB& a, const AABB& b);

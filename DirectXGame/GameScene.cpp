@@ -4,6 +4,35 @@
 
 using namespace KamataEngine;
 
+
+void GameScene::CheckAllCollisions() {
+
+#pragma region 自キャラと敵キャラの当たり判定
+	{
+		// 判定対象は2つ必要
+		AABB aabb1, aabb2;
+
+		// 自キャラのAABB
+		aabb1 = player_->GetAABB();
+
+		// 敵キャラとの総当たり判定
+		for (Enemy* enemy : enemies_) {
+			// 敵のAABB
+			aabb2 = enemy->GetAABB();
+
+			// AABB同士の交差判定
+			if (IsCollisionAABB(aabb1, aabb2)) {
+				player_->OnCollision(enemy);
+				enemy->OnCollision(player_);
+			}
+		}
+	}
+
+#pragma endregion
+}
+
+
+
 void GameScene::Initialize() { 
 	// デバックカメラの生成
 	debugCamera_ = new DebugCamera(1280, 720);
@@ -20,7 +49,21 @@ void GameScene::Initialize() {
 	mapChipField_ = new MapChipField();
 	
 	player_ = new Player();
-	enemy_ = new Enemy();
+	for (int32_t i = 0; i < 3; ++i) {
+		Enemy* newEnemy = new Enemy();
+		enemyModel_ = Model::CreateFromOBJ("cube", true);
+		// 各体ごとに異なる座標に配置（例: x方向に2.0fずつ離して配置）
+		Vector3 enemyPosition = {20.0f + i * 2.0f, 2.0f, 0.0f};
+
+		// 初期化
+		newEnemy->Initialize(enemyModel_, &camera_, enemyPosition);
+		uint32_t enemyTex = TextureManager::Load("./Resources/monsterBall.png");
+		newEnemy->SetTexture(enemyTex);
+
+		// リストに追加
+		enemies_.push_back(newEnemy);
+	}
+
 	 // 位置は適当な例
 	// ブロックの要素数
 	const uint32_t kNumBlockVirtical = 10;
@@ -37,12 +80,9 @@ void GameScene::Initialize() {
 	// 座標をマップチップ番号で指定
 	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
 	playerModel_ = Model::CreateFromOBJ("cube", true);
-	enemyModel_ = Model::CreateFromOBJ("cube", true);
 	playerPosition = {2.0f, 2.0f, 0.0f};
-	uint32_t enemyTex = TextureManager::Load("./Resources/monsterBall.png");
-	player_->Initialize(playerModel_, &camera_, playerPosition);
-	enemy_->Initialize(enemyModel_, &camera_, {20.0f, 2.0f, 0.0f});
-	enemy_->SetTexture(enemyTex);            // ← テクスチャを敵に設定
+	
+	player_->Initialize(playerModel_, &camera_, playerPosition);            // ← テクスチャを敵に設定
 	player_->SetMapChipField(mapChipField_); // プレイヤーにマップチップフィールドを設定
 
 	// Initialize に追加
@@ -62,9 +102,13 @@ void GameScene::Initialize() {
 void GameScene::Update() { 
 	 float deltaTime = 1.0f / 60.0f;
 	player_->Update(deltaTime);
-	 enemy_->Update();
+	 for (Enemy* enemy : enemies_) {
+		 if (enemy) {
+			 enemy->Update();
+		 }
+	 }
 	 cameraController_.Update();
-
+	 CheckAllCollisions();
 
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
@@ -104,7 +148,11 @@ void GameScene::Update() {
 
 void GameScene::Draw() { 
 	player_->Draw();
-	enemy_->Draw();
+	for (Enemy* enemy : enemies_) {
+		if (enemy) {
+			enemy->Draw();
+		}
+	}
 	Vector3 pos = player_->GetPosition();
 
 	char buffer[256];
@@ -134,7 +182,10 @@ GameScene::~GameScene()
 	// マップチップフィールドの開放
 	delete mapChipField_;
 	delete playerModel_;
-	delete enemy_;
+	for (Enemy* enemy : enemies_) {
+		delete enemy;
+	}
+	enemies_.clear();
 	delete enemyModel_;
 
 

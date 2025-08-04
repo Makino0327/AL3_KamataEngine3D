@@ -24,7 +24,7 @@ static inline const float kAttenuationLanding = 0.2f; // 例えば20%摩擦
 static inline const float kGroundingOffsetY = -0.05f; // 微小なマイナス値
                                                       // 壁接触時の減衰率（例: 20% 減衰）
 static inline const float kAttenuationWall = 0.2f;
-
+class Enemy;
 enum class LRDirection
 {
 	kRight,
@@ -112,6 +112,8 @@ public:
 	void ChangeGroundState(const CollisionInfo& info);
 	// 壁に接触している場合の処理
 	void ProcessWallCollision(const CollisionInfo& info);
-
-	
+	Vector3 GetWorldPosition();
+	// AABBを取得
+	AABB GetAABB();
+	void OnCollision(const Enemy* enemy);
 };

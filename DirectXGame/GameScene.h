@@ -36,7 +36,7 @@ public:
 	Player* player_;
 	KamataEngine::Model* playerModel_ = nullptr;
 
-	 Enemy* enemy_ = nullptr; // Enemyのポインタ
+	std::list<Enemy*> enemies_; // Enemyのポインタ
 	KamataEngine::Model* enemyModel_ = nullptr; // または Model::CreateFromOBJ("enemy", true) など
 
 
@@ -52,4 +52,6 @@ public:
 
 	void GenerateBlocks();
 
+	// 全ての当たり判定を行う
+	void CheckAllCollisions();
 };
