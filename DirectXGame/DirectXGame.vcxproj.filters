@@ -13,21 +13,51 @@
     <FxCompile Include="Resources\shaders\SpriteVS.hlsl" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="GameScene.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="MapChipField.cpp" />
-    <ClCompile Include="Skydome.cpp" />
-    <ClCompile Include="Player.cpp" />
-    <ClCompile Include="Vector.cpp" />
-    <ClCompile Include="CameraController.cpp" />
+    <ClCompile Include="CameraController.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Enemy.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="GameScene.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="MapChipField.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Player.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Skydome.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Vector.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="GameScene.h" />
-    <ClInclude Include="MapChipField.h" />
-    <ClInclude Include="Skydome.h" />
-    <ClInclude Include="Player.h" />
-    <ClInclude Include="Vector.h" />
-    <ClInclude Include="CameraController.h" />
+    <ClInclude Include="CameraController.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Enemy.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="GameScene.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="MapChipField.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Player.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Skydome.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Vector.h">
+      <Filter>class</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Obj.hlsli" />
@@ -35,5 +65,10 @@
     <None Include="Resources\shaders\Shape.hlsli" />
     <None Include="Resources\shaders\Terrain.hlsli" />
     <None Include="Resources\shaders\Sprite.hlsli" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="class">
+      <UniqueIdentifier>{6a48fb42-685d-4102-9d64-1ff22f6b556c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
 </Project>

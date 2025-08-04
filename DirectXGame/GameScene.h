@@ -7,6 +7,7 @@
 #include "Player.h"
 #include "Vector.h"
 #include "CameraController.h"
+#include "Enemy.h" 
 
 class GameScene {
 public:
@@ -34,6 +35,10 @@ public:
 	// プレイヤー
 	Player* player_;
 	KamataEngine::Model* playerModel_ = nullptr;
+
+	 Enemy* enemy_ = nullptr; // Enemyのポインタ
+	KamataEngine::Model* enemyModel_ = nullptr; // または Model::CreateFromOBJ("enemy", true) など
+
 
 	public:
 

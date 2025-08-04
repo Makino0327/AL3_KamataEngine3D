@@ -20,6 +20,8 @@ void GameScene::Initialize() {
 	mapChipField_ = new MapChipField();
 	
 	player_ = new Player();
+	enemy_ = new Enemy();
+	 // 位置は適当な例
 	// ブロックの要素数
 	const uint32_t kNumBlockVirtical = 10;
 	const uint32_t kNumBlockHorizontal = 20;
@@ -35,9 +37,12 @@ void GameScene::Initialize() {
 	// 座標をマップチップ番号で指定
 	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
 	playerModel_ = Model::CreateFromOBJ("cube", true);
+	enemyModel_ = Model::CreateFromOBJ("cube", true);
 	playerPosition = {2.0f, 2.0f, 0.0f};
+	uint32_t enemyTex = TextureManager::Load("./Resources/monsterBall.png");
 	player_->Initialize(playerModel_, &camera_, playerPosition);
-
+	enemy_->Initialize(enemyModel_, &camera_, {20.0f, 2.0f, 0.0f});
+	enemy_->SetTexture(enemyTex);            // ← テクスチャを敵に設定
 	player_->SetMapChipField(mapChipField_); // プレイヤーにマップチップフィールドを設定
 
 	// Initialize に追加
@@ -57,6 +62,7 @@ void GameScene::Initialize() {
 void GameScene::Update() { 
 	 float deltaTime = 1.0f / 60.0f;
 	player_->Update(deltaTime);
+	 enemy_->Update();
 	 cameraController_.Update();
 
 
@@ -98,6 +104,7 @@ void GameScene::Update() {
 
 void GameScene::Draw() { 
 	player_->Draw();
+	enemy_->Draw();
 	Vector3 pos = player_->GetPosition();
 
 	char buffer[256];
@@ -127,6 +134,8 @@ GameScene::~GameScene()
 	// マップチップフィールドの開放
 	delete mapChipField_;
 	delete playerModel_;
+	delete enemy_;
+	delete enemyModel_;
 
 
 	// ワールドトランスフォーム開放
