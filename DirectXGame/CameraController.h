@@ -20,7 +20,7 @@ class CameraController
 private:
 	KamataEngine::Camera *camera_;
 	Player* target_ = nullptr;
-	Vector3 targetOffset_ = {0.0f, 0.0f, -50.0f}; // ターゲットからのオフセット
+	Vector3 targetOffset_ = {0.0f, 0.0f, -35.0f}; // ターゲットからのオフセット
 	Rect movableArea_ = {0, 100, 0, 100};
 	Vector3 targetPosition_;
 

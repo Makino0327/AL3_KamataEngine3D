@@ -1,6 +1,9 @@
 #pragma once
+#define NOMINMAX
+#include <Windows.h>
 #include "KamataEngine.h"
 #include "Vector.h"
+#include <algorithm>
 
 enum class MapChipType
 {

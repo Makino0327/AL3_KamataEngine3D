@@ -17,10 +17,14 @@ static inline const float kLimitRunSpeed = 0.5f;
 static inline const float kTimeTurn = 0.3f;
 static inline const float kGravityAcceleration = 0.01f; // 重力加速度
 static inline const float kLimitFallSpeed = 0.5f;       // 限界落下速度
-static inline const float kJumpAcceleration = 0.3f;     // ジャンプ加速度
-static inline const float kWidth = 0.8f;
-static inline const float kHeight = 0.8f; // プレイヤーの高さ
-
+static inline const float kJumpAcceleration = 0.5f;     // ジャンプ加速度
+static inline const float kWidth = 1.99f;
+static inline const float kHeight = 1.99f; // プレイヤーの高さ
+static inline const float kAttenuationLanding = 0.2f; // 例えば20%摩擦
+static inline const float kGroundingOffsetY = -0.05f; // 微小なマイナス値
+const float modelHeight = 2.0f;                       // 壁接触時の減衰率（例: 20% 減衰）
+static inline const float kAttenuationWall = 0.2f;
+class Enemy;
 enum class LRDirection
 {
 	kRight,
@@ -71,6 +75,9 @@ private:
 
 	const KamataEngine::WorldTransform& GetWorldTransform() const { return worldTransform_; }
 
+	bool isDead_ = false;
+	float modelYOffset_ = 1.0f; // モデル中心 → 足元 までの補正値
+
 
 public:
 	/// <summary>
@@ -98,11 +105,20 @@ public:
 	void CheckCollisionMap(CollisionInfo& info);
 
 	void CheckCollisionMapTop(CollisionInfo& info);
-	//void CheckCollisionMapBottom(CollisionInfo& info);
-	//void CheckCollisionMapLeft(CollisionInfo& info);
-	//void CheckCollisionMapRight(CollisionInfo& info);
+	void CheckCollisionMapBottom(CollisionInfo& info);
+	void CheckCollisionMapLeft(CollisionInfo& info);
+	void CheckCollisionMapRight(CollisionInfo& info);
 
 	Vector3 CornerPosition(const Vector3& center, Corner corner);
 	void ApplyCollisionResult(const CollisionInfo& info);
 	void CheckHitCeiling(const CollisionInfo& info);
+	void ChangeGroundState(const CollisionInfo& info);
+	// 壁に接触している場合の処理
+	void ProcessWallCollision(const CollisionInfo& info);
+	Vector3 GetWorldPosition();
+	// AABBを取得
+	AABB GetAABB();
+	void OnCollision();
+	bool IsDead() const { return isDead_; }
+	WorldTransform& GetWorldTransform() { return worldTransform_; }
 };
