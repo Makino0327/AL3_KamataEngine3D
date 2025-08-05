@@ -7,10 +7,12 @@ void Enemy::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera,
 
 	// ワールドトランスフォームの初期化
 	worldTransform_.Initialize();
+	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f}; // スケールを1に設定
 	worldTransform_.translation_ = position;
-
+	worldTransform_.translation_.y = position.y-1.0f;
 	// 左向きにする（自キャラが右向きなら）
-	worldTransform_.rotation_.y = std::numbers::pi_v<float>;
+	worldTransform_.rotation_.y = -std::numbers::pi_v<float> / 2.0f;
+
 
 	worldTransform_.TransferMatrix();
 
@@ -27,7 +29,7 @@ void Enemy::Update() {
 	float t = (param + 1.0f) / 2.0f;
 	worldTransform_.rotation_.z = std::lerp(kWalkMotionAngleStart, kWalkMotionAngleEnd, t);
 
-
+	 
 	// 必要に応じて位置やロジックを更新する処理を書く
 	worldTransform_.translation_.x += velocity_.x;
 	// 変換行列の更新（SRT順）

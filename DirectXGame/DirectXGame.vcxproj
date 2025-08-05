@@ -114,6 +114,7 @@
     <ClCompile Include="MapChipField.cpp" />
     <ClCompile Include="Skydome.cpp" />
     <ClCompile Include="Player.cpp" />
+    <ClCompile Include="TitleScene.cpp" />
     <ClCompile Include="Vector.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -199,6 +200,7 @@
     <ClInclude Include="MapChipField.h" />
     <ClInclude Include="Skydome.h" />
     <ClInclude Include="Player.h" />
+    <ClInclude Include="TitleScene.h" />
     <ClInclude Include="Vector.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

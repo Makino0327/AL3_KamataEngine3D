@@ -15,14 +15,14 @@ static inline const float kAngleUnit = 2.0f * float(M_PI) / float(kNumParticles)
 
 class DeathParticles  
 {  
-private:  
+public:  
    KamataEngine::Model* model_ = nullptr;  
    KamataEngine::Camera* camera_ = nullptr;  
    std::array<KamataEngine::WorldTransform, kNumParticles> worldTransforms_;  
    std::array<float, kNumParticles> lifeTimers_;  
    // 終了フラグ（描画しないかの判定に使う）
    bool isFinished_ = false;
-
+   bool isActive_ = false;  
    // 経過時間カウンタ（秒）
    float counter_ = 0.0f;
 
@@ -39,4 +39,8 @@ public:
 
    // 描画  
    void Draw();  
+
+   bool IsFinished() const { return isFinished_; }
+
+
 };

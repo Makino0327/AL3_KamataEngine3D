@@ -6,13 +6,17 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	model_ = model;
 	camera_ = camera;
 	worldTransform_.Initialize();
-	worldTransform_.translation_ = {position.x, position.y, position.z};
+	modelYOffset_ = (modelHeight * worldTransform_.scale_.y) / 2.0f;
+
+	worldTransform_.translation_ = {position.x, position.y+1.0f , position.z};
 	worldTransform_.rotation_.y = std::numbers::pi_v<float> / 2.0f;
-	textureHandle_ = TextureManager::Load("./Resources/uvChecker.png");
+	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
+	textureHandle_ = TextureManager::Load("./Resources/cat/Atlas_Monsters.png");
 
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 
 	worldTransform_.TransferMatrix();
+	onGround_ = false;
 }
 
 void Player::Update(float deltaTime) {
@@ -58,8 +62,12 @@ void Player::Update(float deltaTime) {
 	// --- 天井に当たってたらY速度を止める ---
 	CheckHitCeiling(collisionInfo);
 
-	// === 行列更新 ===
-	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
+	// --- 行列更新（Update の最後）---
+	Vector3 correctedTranslation = worldTransform_.translation_;
+	correctedTranslation.y -= modelYOffset_;
+
+	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, correctedTranslation);
+
 	worldTransform_.TransferMatrix();
 
 	DebugText::GetInstance()->ConsolePrintf("Player Pos: x=%.2f y=%.2f z=%.2f\n", worldTransform_.translation_.x, worldTransform_.translation_.y, worldTransform_.translation_.z);
@@ -485,6 +493,8 @@ AABB Player::GetAABB() {
 	return aabb;
 }
 
-void Player::OnCollision(const Enemy* enemy) {
-	(void)enemy; // 未使用警告防止（後で使うかも）
+void Player::OnCollision() {
+	if (!isDead_) {
+		isDead_ = true;
+	}
 }

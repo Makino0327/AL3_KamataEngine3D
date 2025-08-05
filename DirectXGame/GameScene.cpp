@@ -22,7 +22,7 @@ void GameScene::CheckAllCollisions() {
 
 			// AABB同士の交差判定
 			if (IsCollisionAABB(aabb1, aabb2)) {
-				player_->OnCollision(enemy);
+				player_->OnCollision();
 				enemy->OnCollision(player_);
 			}
 		}
@@ -32,6 +32,9 @@ void GameScene::CheckAllCollisions() {
 }
 
 void GameScene::Initialize() { 
+	// 初期状態をプレイフェーズに
+	phase_ = Phase::kPlay;
+
 	// デバックカメラの生成
 	debugCamera_ = new DebugCamera(1280, 720);
 	// カメラの初期化
@@ -49,13 +52,13 @@ void GameScene::Initialize() {
 	player_ = new Player();
 	for (int32_t i = 0; i < 3; ++i) {
 		Enemy* newEnemy = new Enemy();
-		enemyModel_ = Model::CreateFromOBJ("cube", true);
+		enemyModel_ = Model::CreateFromOBJ("dog", true);
 		// 各体ごとに異なる座標に配置（例: x方向に2.0fずつ離して配置）
 		Vector3 enemyPosition = {20.0f + i * 2.0f, 2.0f, 0.0f};
 
 		// 初期化
 		newEnemy->Initialize(enemyModel_, &camera_, enemyPosition);
-		uint32_t enemyTex = TextureManager::Load("./Resources/monsterBall.png");
+		uint32_t enemyTex = TextureManager::Load("./Resources/dog/Atlas_Monsters.png");
 		newEnemy->SetTexture(enemyTex);
 
 		// リストに追加
@@ -77,7 +80,7 @@ void GameScene::Initialize() {
 	}
 	// 座標をマップチップ番号で指定
 	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
-	playerModel_ = Model::CreateFromOBJ("cube", true);
+	playerModel_ = Model::CreateFromOBJ("cat", true);
 	playerPosition = {2.0f, 2.0f, 0.0f};
 	particleModel_ = Model::CreateFromOBJ("particle", true);
 	// 仮の生成処理。後で条件つけて呼び出すようにする
@@ -91,6 +94,7 @@ void GameScene::Initialize() {
 	// Initialize に追加
 	cameraController_.SetCamera(&camera_);
 	cameraController_.SetTarget(player_);
+
 	cameraController_.Reset();
 
 	Rect area{};
@@ -102,26 +106,63 @@ void GameScene::Initialize() {
 	
 }
 
-void GameScene::Update() { 
-	
+void GameScene::UpdatePlay(float deltaTime) {
 
-	 float deltaTime = 1.0f / 60.0f;
-	player_->Update(deltaTime);
+	if (player_->IsDead()) {
+		// フェーズ変更
+		phase_ = Phase::kDeath;
+
+		// プレイヤーの位置を取得
+		const Vector3& pos = player_->GetWorldPosition();
+
+		// deathParticles_ の初期化処理
+		if (deathParticles_) {
+			for (uint32_t i = 0; i < kNumParticles; ++i) {
+				deathParticles_->worldTransforms_[i].translation_ = pos;
+			}
+			deathParticles_->isActive_ = true; // 再生フラグON
+		}
+
+		return;
+	}
+
+
+
+	player_->Update(deltaTime); 
+
 	 for (Enemy* enemy : enemies_) {
-		 if (enemy) {
-			 enemy->Update();
-		 }
+		if (enemy) {
+			enemy->Update();
+		}
 	 }
-	 cameraController_.Update();
-	 CheckAllCollisions();
 
-	 if (deathParticles_) {
-		deathParticles_->Update();
+	 cameraController_.Update();
+	 // カメラの処理
+	 if (isDebugCameraActive_) {
+		 // デバッグカメラの更新（キーボードやマウスで移動・回転など）
+		 debugCamera_->Update();
+
+		 camera_.matView = debugCamera_->GetCamera().matView;
+		 camera_.matProjection = debugCamera_->GetCamera().matProjection;
+
+		 // ビュープロジェクション行列の転送
+		 camera_.TransferMatrix();
+	 } else {
+		 // 通常カメラのビュープロジェクション行列を更新・転送
+		 camera_.UpdateMatrix();
 	 }
+
+	 #ifdef _DEBUG
+	 if (Input::GetInstance()->TriggerKey(DIK_T)) {
+		 isDebugCameraActive_ = true;
+	 }
+#endif
+	
 
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			if (!worldTransformBlock)continue;
+			if (!worldTransformBlock)
+				continue;
 
 			// アフィン行列の作成
 			Matrix4x4 worldMatrix = MakeAffineMatrix(worldTransformBlock->scale_, worldTransformBlock->rotation_, worldTransformBlock->translation_);
@@ -130,47 +171,111 @@ void GameScene::Update() {
 			worldTransformBlock->TransferMatrix();
 		}
 	}
-	debugCamera_->Update();
+	
 
-	#ifdef _DEBUG
-	if (Input::GetInstance()->TriggerKey(DIK_T))
-	{
-		isDebugCameraActive_ = true;
+	CheckAllCollisions();
+
+	
+}
+
+void GameScene::UpdateDeath() {
+	for (Enemy* enemy : enemies_) {
+		if (enemy) {
+			enemy->Update();
+		}
 	}
-	#endif
+	if (deathParticles_ && deathParticles_->isActive_) {
+		deathParticles_->Update();
+	}
 
+	 cameraController_.Update();
 	// カメラの処理
-    if (isDebugCameraActive_) {
-        // デバッグカメラの更新（キーボードやマウスで移動・回転など）
-        debugCamera_->Update();
+	if (isDebugCameraActive_) {
+		// デバッグカメラの更新（キーボードやマウスで移動・回転など）
+		debugCamera_->Update();
 
 		camera_.matView = debugCamera_->GetCamera().matView;
 		camera_.matProjection = debugCamera_->GetCamera().matProjection;
 
-        // ビュープロジェクション行列の転送
-        camera_.TransferMatrix();
-    } else {
-        // 通常カメラのビュープロジェクション行列を更新・転送
-        camera_.UpdateMatrix();
-    }
+		// ビュープロジェクション行列の転送
+		camera_.TransferMatrix();
+	} else {
+		// 通常カメラのビュープロジェクション行列を更新・転送
+		camera_.UpdateMatrix();
+	}
+
+#ifdef _DEBUG
+	if (Input::GetInstance()->TriggerKey(DIK_T)) {
+		isDebugCameraActive_ = true;
+	}
+#endif
+
+	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
+		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
+			if (!worldTransformBlock)
+				continue;
+
+			// アフィン行列の作成
+			Matrix4x4 worldMatrix = MakeAffineMatrix(worldTransformBlock->scale_, worldTransformBlock->rotation_, worldTransformBlock->translation_);
+			worldTransformBlock->matWorld_ = worldMatrix;
+			// 定数バッファに転送する
+			worldTransformBlock->TransferMatrix();
+		}
+	}
+	
+}
+
+void GameScene::ChangePhase() {
+	switch (phase_) {
+	case Phase::kPlay:
+		// プレイ中の切り替え条件（プレイヤー死亡など）をここに書く
+		break;
+
+	case Phase::kDeath:
+		// 今は何も書かなくてよい（演出終了後に書くことになる）
+		break;
+	}
+}
+
+
+
+void GameScene::Update() { 
+	 float deltaTime = 1.0f / 60.0f;
+	switch (phase_) {
+	case Phase::kPlay:
+		// ゲームプレイ中の処理
+		UpdatePlay(deltaTime);
+		break;
+	case Phase::kDeath:
+		// 死亡演出中の処理
+		UpdateDeath();
+		break;
+	}
+
+	if (deathParticles_ && deathParticles_->IsFinished()) {
+		finished_ = true;
+	}
 }
 
 void GameScene::Draw() { 
 	skydome_->Draw(skydomeModel_, camera_);
-	player_->Draw();
+	if (!player_->IsDead())
+	{
+		player_->Draw();
+
+	} else {
+		// 描画処理
+		if (deathParticles_) {
+			deathParticles_->Draw();
+		}
+	}
+	
 	for (Enemy* enemy : enemies_) {
 		if (enemy) {
 			enemy->Draw();
 		}
 	}
-	Vector3 pos = player_->GetPosition();
 
-
-
-	// 描画処理
-	if (deathParticles_) {
-		deathParticles_->Draw();
-	}
 
 	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
 		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {

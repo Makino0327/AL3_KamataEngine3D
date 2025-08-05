@@ -10,6 +10,11 @@
 #include "Enemy.h" 
 #include "DeathParticles.h"
 
+enum class Phase {
+	kPlay, // ゲームプレイ中
+	kDeath // 死亡演出
+};
+
 class GameScene {
 public:
 	// 3Dモデルデータ
@@ -35,6 +40,7 @@ public:
 
 	DeathParticles* deathParticles_ = nullptr;
 
+	Phase phase_;
 
 	// プレイヤー
 	Player* player_;
@@ -42,7 +48,8 @@ public:
 	KamataEngine::Model* particleModel_ = nullptr; // パーティクル用のモデル
 	std::list<Enemy*> enemies_; // Enemyのポインタ
 	KamataEngine::Model* enemyModel_ = nullptr; // または Model::CreateFromOBJ("enemy", true) など
-
+	                                            // シーンが終了したかどうかのフラグ
+	bool finished_ = false;
 
 	public:
 
@@ -58,4 +65,11 @@ public:
 
 	// 全ての当たり判定を行う
 	void CheckAllCollisions();
+
+	void UpdatePlay(float deltaTime);
+
+	void UpdateDeath();
+
+	void ChangePhase();
+	bool IsFinished() const { return finished_; }
 };
