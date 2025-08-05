@@ -102,6 +102,12 @@ void GameScene::Initialize() {
 	cameraController_.SetMovableArea(area);
 
 	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
+
+	fade_ = new Fade();
+	fade_->Initialize();
+	fade_->Start(Status::FadeIn, 1.0f); // 開始時にフェードイン
+
+
 	GenerateBlocks();
 	
 }
@@ -109,22 +115,17 @@ void GameScene::Initialize() {
 void GameScene::UpdatePlay(float deltaTime) {
 
 	if (player_->IsDead()) {
-		// フェーズ変更
-		phase_ = Phase::kDeath;
-
-		// プレイヤーの位置を取得
 		const Vector3& pos = player_->GetWorldPosition();
 
-		// deathParticles_ の初期化処理
-		if (deathParticles_) {
-			for (uint32_t i = 0; i < kNumParticles; ++i) {
-				deathParticles_->worldTransforms_[i].translation_ = pos;
-			}
-			deathParticles_->isActive_ = true; // 再生フラグON
+		if (!deathParticles_) {
+			deathParticles_ = new DeathParticles();
 		}
+		deathParticles_->Initialize(pos, particleModel_, &camera_);
+		phase_ = Phase::kDeath; // 早めに切り替える
 
 		return;
 	}
+
 
 
 
@@ -239,23 +240,59 @@ void GameScene::ChangePhase() {
 
 
 
-void GameScene::Update() { 
-	 float deltaTime = 1.0f / 60.0f;
+void GameScene::Update() {
+	float deltaTime = 1.0f / 60.0f;
+
 	switch (phase_) {
-	case Phase::kPlay:
-		// ゲームプレイ中の処理
-		UpdatePlay(deltaTime);
+	case Phase::kFadeIn:
+		fade_->Update();
+		if (fade_->IsFinished()) {
+			phase_ = Phase::kPlay;
+		}
 		break;
+
+	case Phase::kPlay:
+		UpdatePlay(deltaTime);
+
+		if (player_->IsDead()) {
+			// 死亡時にパーティクル初期化をここでやる！
+			const Vector3& pos = player_->GetWorldPosition();
+			if (!deathParticles_) {
+				deathParticles_ = new DeathParticles();
+			}
+			deathParticles_->Initialize(pos, particleModel_, &camera_);
+			deathParticles_->isActive_ = true;
+
+			// フェードアウトではなく、死亡フェーズへ移行
+			phase_ = Phase::kDeath;
+		}
+		break;
+
 	case Phase::kDeath:
-		// 死亡演出中の処理
 		UpdateDeath();
+
+		// パーティクルが終了したらフェードアウトを開始
+		if (deathParticles_ && deathParticles_->IsFinished()) {
+			fade_->Start(Status::FadeOut, 1.0f);
+			phase_ = Phase::kFadeOut;
+		}
+		break;
+
+	case Phase::kFadeOut:
+		
+		fade_->Update();
+		if (fade_->IsFinished()) {
+			finished_ = true; // シーン終了
+		}
 		break;
 	}
 
+	// 死亡パーティクル終了チェック（必要に応じて phase_ == kDeath の中に入れてもOK）
 	if (deathParticles_ && deathParticles_->IsFinished()) {
 		finished_ = true;
 	}
 }
+
 
 void GameScene::Draw() { 
 	skydome_->Draw(skydomeModel_, camera_);
@@ -282,6 +319,11 @@ void GameScene::Draw() {
 			if (!worldTransformBlock)continue;
 			model_->Draw(*worldTransformBlock, camera_, block_);
 		}
+	}
+
+	 // 最後にフェード
+	if (phase_ == Phase::kFadeIn || phase_ == Phase::kFadeOut) {
+		fade_->Draw();
 	}
 	
 }

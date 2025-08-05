@@ -39,6 +39,7 @@
     <ClCompile Include="TitleScene.cpp">
       <Filter>class</Filter>
     </ClCompile>
+    <ClCompile Include="Fade.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CameraController.h">
@@ -66,6 +67,7 @@
     <ClInclude Include="TitleScene.h">
       <Filter>class</Filter>
     </ClInclude>
+    <ClInclude Include="Fade.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Obj.hlsli" />

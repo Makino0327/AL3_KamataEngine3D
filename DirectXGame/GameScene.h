@@ -9,11 +9,10 @@
 #include "CameraController.h"
 #include "Enemy.h" 
 #include "DeathParticles.h"
+#include "Fade.h"
+#include "TitleScene.h"
 
-enum class Phase {
-	kPlay, // ゲームプレイ中
-	kDeath // 死亡演出
-};
+
 
 class GameScene {
 public:
@@ -40,7 +39,7 @@ public:
 
 	DeathParticles* deathParticles_ = nullptr;
 
-	Phase phase_;
+	
 
 	// プレイヤー
 	Player* player_;
@@ -50,6 +49,10 @@ public:
 	KamataEngine::Model* enemyModel_ = nullptr; // または Model::CreateFromOBJ("enemy", true) など
 	                                            // シーンが終了したかどうかのフラグ
 	bool finished_ = false;
+
+	Phase phase_ = Phase::kFadeIn;
+
+	Fade* fade_ = nullptr; // フェード用のオブジェクト
 
 	public:
 

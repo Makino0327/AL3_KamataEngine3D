@@ -15,6 +15,8 @@ struct AABB {
 	Vector3 max;
 };
 
+
+
 Matrix4x4 IdentityMatrix();
 
 Matrix4x4 MakeScaleMatrix(const Vector3& scale);
