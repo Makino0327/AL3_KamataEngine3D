@@ -20,58 +20,52 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 }
 
 void Player::Update(float deltaTime) {
-	// 入力による移動
-	InputMove(deltaTime);
-
-	// ジャンプ入力
-	if (onGround_) {
-		if (Input::GetInstance()->PushKey(DIK_SPACE)) {
-			velocity_.y += kJumpAcceleration;
-		}
-	} else {
-		// 空中中は重力加速度を加える
-		velocity_.y += -kGravityAcceleration;
-		velocity_.y = std::max(velocity_.y, -kLimitFallSpeed);
+	// 攻撃開始
+	if (behaviorState_ == BehaviorState::kRoot && Input::GetInstance()->TriggerKey(DIK_E)) {
+		behaviorState_ = BehaviorState::kAttack;
+		attackTimer_ = 0.0f;
 	}
 
-	// --- 衝突前の移動量を CollisionInfo に渡す ---
-	CollisionInfo collisionInfo;
-	collisionInfo.move = velocity_;
+	// 状態ごとの更新
+	switch (behaviorState_) {
+	case BehaviorState::kRoot:
+		BehaviorRootUpdate(deltaTime);
+		break;
 
-	// --- マップとの衝突判定 ---
-	CheckCollisionMap(collisionInfo);
+	case BehaviorState::kAttack:
+		BehaviorAttackUpdate();
+		attackTimer_ += deltaTime;
+		if (attackTimer_ >= kAttackDuration_) {
+			behaviorState_ = BehaviorState::kRoot;
+			attackTimer_ = 0.0f;
+		}
+		break;
+	}
 
-	// --- 接地 or 空中状態の切り替え処理 ---
-	ChangeGroundState(collisionInfo);
+	// 攻撃中のスケール変更
+	if (behaviorState_ == BehaviorState::kAttack) {
+		float t = std::clamp(attackTimer_ / kAttackDuration_, 0.0f, 1.0f);
 
-	// --- 上方向の天井判定 ---
-	CheckCollisionMapTop(collisionInfo);
+		// イージング（0→1→0のカーブ）
+		float ease = sinf(t * 3.14159f);
 
-	// --- 衝突後の移動量を適用 ---
-	// 衝突後の移動量を適用
-	ApplyCollisionResult(collisionInfo);
+		// 各軸に必ず変化を与える（数値は変わらなくてもOK）
+		float scaleX = std::lerp(1.0f, 1.0f, ease);
+		float scaleY = std::lerp(1.0f, 1.0f, ease); // 変化しないように見えても再代入させる
+		float scaleZ = std::lerp(1.0f, 0.3f, ease);
 
-	// 壁との接触による速度減衰処理を追加
-	ProcessWallCollision(collisionInfo);
+		// まとめて代入（常に新しいVector3）
+		worldTransform_.scale_ = {scaleX, scaleY, scaleZ};
+	}
 
-
-	// --- 壁に当たっている場合の処理 ---
-	ProcessWallCollision(collisionInfo);
-
-
-	// --- 天井に当たってたらY速度を止める ---
-	CheckHitCeiling(collisionInfo);
-
-	// --- 行列更新（Update の最後）---
+	// ワールド行列の更新（スケールを適用）
 	Vector3 correctedTranslation = worldTransform_.translation_;
 	correctedTranslation.y -= modelYOffset_;
-
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, correctedTranslation);
-
 	worldTransform_.TransferMatrix();
-
-	DebugText::GetInstance()->ConsolePrintf("Player Pos: x=%.2f y=%.2f z=%.2f\n", worldTransform_.translation_.x, worldTransform_.translation_.y, worldTransform_.translation_.z);
 }
+
+
 
 
 void Player::Draw() { 
@@ -497,4 +491,80 @@ void Player::OnCollision() {
 	if (!isDead_) {
 		isDead_ = true;
 	}
+}
+
+void Player::BehaviorRootUpdate(float deltaTime) {
+	// スケールを戻す
+	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
+	// タイマーリセット
+	attackScaleTimer_ = 0.0f;
+
+	// 入力による移動
+	InputMove(deltaTime);
+
+	// ジャンプ入力
+	if (onGround_) {
+		if (Input::GetInstance()->PushKey(DIK_SPACE)) {
+			velocity_.y += kJumpAcceleration;
+		}
+	} else {
+		// 空中中は重力加速度を加える
+		velocity_.y += -kGravityAcceleration;
+		velocity_.y = std::max(velocity_.y, -kLimitFallSpeed);
+	}
+
+	// --- 衝突前の移動量を CollisionInfo に渡す ---
+	CollisionInfo collisionInfo;
+	collisionInfo.move = velocity_;
+
+	// --- マップとの衝突判定 ---
+	CheckCollisionMap(collisionInfo);
+
+	// --- 接地 or 空中状態の切り替え処理 ---
+	ChangeGroundState(collisionInfo);
+
+	// --- 上方向の天井判定 ---
+	CheckCollisionMapTop(collisionInfo);
+
+	// --- 衝突後の移動量を適用 ---
+	// 衝突後の移動量を適用
+	ApplyCollisionResult(collisionInfo);
+
+	// 壁との接触による速度減衰処理を追加
+	ProcessWallCollision(collisionInfo);
+
+	// --- 壁に当たっている場合の処理 ---
+	ProcessWallCollision(collisionInfo);
+
+	// --- 天井に当たってたらY速度を止める ---
+	CheckHitCeiling(collisionInfo);
+
+	// --- 行列更新（Update の最後）---
+	Vector3 correctedTranslation = worldTransform_.translation_;
+	correctedTranslation.y -= modelYOffset_;
+
+	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, correctedTranslation);
+
+	worldTransform_.TransferMatrix();
+
+	DebugText::GetInstance()->ConsolePrintf("Player Pos: x=%.2f y=%.2f z=%.2f\n", worldTransform_.translation_.x, worldTransform_.translation_.y, worldTransform_.translation_.z);
+}
+
+void Player::BehaviorAttackUpdate() {
+	const float attackSpeed = 0.4f;
+
+	// 向いてる方向に攻撃移動
+	velocity_.x = (lrDirection_ == LRDirection::kRight) ? +attackSpeed : -attackSpeed;
+
+	// --- 衝突処理 ---
+	CollisionInfo collisionInfo;
+	collisionInfo.move = velocity_;
+	CheckCollisionMap(collisionInfo);
+	ChangeGroundState(collisionInfo);
+	CheckCollisionMapTop(collisionInfo);
+	ApplyCollisionResult(collisionInfo);
+	ProcessWallCollision(collisionInfo);
+	CheckHitCeiling(collisionInfo);
+
+	// ※ スケールや行列更新は削除
 }

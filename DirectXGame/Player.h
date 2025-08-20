@@ -31,6 +31,8 @@ enum class LRDirection
 	kLeft,
 };
 
+enum class BehaviorState { kRoot, kAttack };
+
 // マップとの衝突判定情報
 struct CollisionInfo {
 	bool isHitTop = false;
@@ -78,6 +80,13 @@ private:
 	bool isDead_ = false;
 	float modelYOffset_ = 1.0f; // モデル中心 → 足元 までの補正値
 
+	
+	BehaviorState behaviorState_ = BehaviorState::kRoot;
+
+	float attackTimer_ = 0.0f;
+	static constexpr float kAttackDuration_ = 0.30f; // 攻撃の持続秒
+	float attackScaleTimer_ = 0.0f;
+	const float kAttackScaleDuration = 0.2f; // 縮む時間（秒）
 
 public:
 	/// <summary>
@@ -121,4 +130,9 @@ public:
 	void OnCollision();
 	bool IsDead() const { return isDead_; }
 	WorldTransform& GetWorldTransform() { return worldTransform_; }
+
+	void BehaviorRootUpdate(float deltaTime);
+
+	// 攻撃行動更新
+	void BehaviorAttackUpdate();
 };
