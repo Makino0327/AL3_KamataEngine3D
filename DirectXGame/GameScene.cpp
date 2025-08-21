@@ -50,7 +50,7 @@ void GameScene::Initialize() {
 	mapChipField_ = new MapChipField();
 	
 	player_ = new Player();
-	for (int32_t i = 0; i < 3; ++i) {
+	for (int32_t i = 0; i < 0; ++i) {
 		Enemy* newEnemy = new Enemy();
 		enemyModel_ = Model::CreateFromOBJ("dog", true);
 		// 各体ごとに異なる座標に配置（例: x方向に2.0fずつ離して配置）
@@ -81,7 +81,7 @@ void GameScene::Initialize() {
 	// 座標をマップチップ番号で指定
 	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
 	playerModel_ = Model::CreateFromOBJ("cat", true);
-	playerPosition = {2.0f, 2.0f, 0.0f};
+	playerPosition = {14.0f, 2.0f, 0.0f};
 	particleModel_ = Model::CreateFromOBJ("particle", true);
 	// 仮の生成処理。後で条件つけて呼び出すようにする
 	
@@ -97,9 +97,31 @@ void GameScene::Initialize() {
 
 	cameraController_.Reset();
 
+	// Map 実寸
+	const float BW = MapChipField::kBlockWidth;
+	const float BH = MapChipField::kBlockHeight;
+	const uint32_t NX = MapChipField::kNumBlockHorizontal;
+	const uint32_t NY = MapChipField::kNumBlockVirtical;
+
+	// 画面に見せたいタイル枚数（整数がコツ）
+	const int visibleTilesX = 32;
+	const int visibleTilesY = 9;
+
+	const float halfW = (visibleTilesX * BW) * 0.5f;
+	const float halfH = (visibleTilesY * BH) * 0.5f;
+
+	// ★タイル端に合わせた可動範囲（中心座標のClamp範囲）
 	Rect area{};
+	area.left = (-BW * 0.5f) + halfW;
+	area.right = (NX * BW - BW * 0.5f) - halfW;
+	area.bottom = (-BH * 0.5f) + halfH;
+	area.top = (NY * BH - BH * 0.5f) - halfH;
 
 	cameraController_.SetMovableArea(area);
+
+
+
+	
 
 	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
 

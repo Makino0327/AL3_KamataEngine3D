@@ -13,6 +13,7 @@
 
 enum class Phase {
 	kFadeIn, // フェードイン中
+	kCountdown,
 	kPlay,   // ゲームプレイ
 	kDeath,  // デス演出中
 	kMain,

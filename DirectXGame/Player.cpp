@@ -311,6 +311,10 @@ void Player::ChangeGroundState(const CollisionInfo& info) {
 			onGround_ = true;
 			velocity_.x *= (1.0f - kAttenuationLanding); // 着地時の摩擦
 			velocity_.y = 0.0f;
+			jumpCount_ = 0;
+
+			spinActive_ = false;
+			worldTransform_.rotation_.x = 0.0f;
 		}
 	}
 }
@@ -502,16 +506,35 @@ void Player::BehaviorRootUpdate(float deltaTime) {
 	// 入力による移動
 	InputMove(deltaTime);
 
-	// ジャンプ入力
-	if (onGround_) {
-		if (Input::GetInstance()->PushKey(DIK_SPACE)) {
-			velocity_.y += kJumpAcceleration;
+	const bool jumpPressed = Input::GetInstance()->TriggerKey(DIK_SPACE);
+	if (jumpPressed && jumpCount_ < maxJumps_) {
+
+		// 2回目ジャンプになるか？（jumpCount_==1 なら今から2回目）
+		const bool isSecondJump = (jumpCount_ == 1);
+
+		if (velocity_.y < 0.0f)
+			velocity_.y = 0.0f;          // 落下打ち消し
+		velocity_.y = kJumpAcceleration; // 初速は代入
+		onGround_ = false;
+
+		// ★2回目ならスピン開始
+		if (isSecondJump) {
+			spinActive_ = true;
+			spinTimer_ = 0.0f;
+			spinStartX_ = worldTransform_.rotation_.x; // 現在角度を基準に回す
 		}
-	} else {
-		// 空中中は重力加速度を加える
+
+		++jumpCount_;
+	}
+
+
+	// 空中中は重力
+	if (!onGround_) {
 		velocity_.y += -kGravityAcceleration;
 		velocity_.y = std::max(velocity_.y, -kLimitFallSpeed);
 	}
+
+
 
 	// --- 衝突前の移動量を CollisionInfo に渡す ---
 	CollisionInfo collisionInfo;
@@ -533,11 +556,25 @@ void Player::BehaviorRootUpdate(float deltaTime) {
 	// 壁との接触による速度減衰処理を追加
 	ProcessWallCollision(collisionInfo);
 
-	// --- 壁に当たっている場合の処理 ---
-	ProcessWallCollision(collisionInfo);
-
 	// --- 天井に当たってたらY速度を止める ---
 	CheckHitCeiling(collisionInfo);
+
+	// ★ここを「行列更新の直前」に追加
+	if (spinActive_) {
+		spinTimer_ += deltaTime;
+		float t = std::clamp(spinTimer_ / spinDuration_, 0.0f, 1.0f);
+
+		// 等速で 0 → 2π（前転）回す。演出を変えたければイージングしてOK
+		float angle = t * (2.0f * std::numbers::pi_v<float>);
+		worldTransform_.rotation_.x = spinStartX_ + angle;
+
+		if (t >= 1.0f) {
+			spinActive_ = false; // 回転終了
+			// 戻したければ次行を有効化：
+			// worldTransform_.rotation_.x = 0.0f;
+		}
+	}
+
 
 	// --- 行列更新（Update の最後）---
 	Vector3 correctedTranslation = worldTransform_.translation_;

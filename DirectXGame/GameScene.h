@@ -39,7 +39,12 @@ public:
 
 	DeathParticles* deathParticles_ = nullptr;
 
-	
+	// GameScene のメンバに追加
+	bool isCountingDown_ = false;
+	float countdownTimer_ = 0.0f;    // 経過秒
+	int countdownValue_ = 3;         // 3,2,1, 0でGO
+	float countdownInterval_ = 1.0f; // 1秒ごとに減る
+	float goHoldTime_ = 0.6f;        // 「GO!」表示時間
 
 	// プレイヤー
 	Player* player_;
