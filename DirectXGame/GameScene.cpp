@@ -33,7 +33,7 @@ void GameScene::CheckAllCollisions() {
 
 void GameScene::Initialize() { 
 	// 初期状態をプレイフェーズに
-	phase_ = Phase::kPlay;
+	phase_ = Phase::kCountdown;
 
 	// デバックカメラの生成
 	debugCamera_ = new DebugCamera(1280, 720);
@@ -147,9 +147,6 @@ void GameScene::UpdatePlay(float deltaTime) {
 
 		return;
 	}
-
-
-
 
 	player_->Update(deltaTime); 
 
@@ -269,9 +266,49 @@ void GameScene::Update() {
 	case Phase::kFadeIn:
 		fade_->Update();
 		if (fade_->IsFinished()) {
-			phase_ = Phase::kPlay;
+			// ここで Play ではなく Countdown に入る
+			isCountingDown_ = true;
+			countdownTimer_ = 0.0f;
+			countdownValue_ = 3;
+			phase_ = Phase::kCountdown;
 		}
 		break;
+
+	case Phase::kCountdown: {
+
+		// カメラは更新してOK（好み）
+		cameraController_.Update();
+		camera_.UpdateMatrix();
+
+		for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
+			for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
+				if (!worldTransformBlock)
+					continue;
+
+				// アフィン行列の作成
+				Matrix4x4 worldMatrix = MakeAffineMatrix(worldTransformBlock->scale_, worldTransformBlock->rotation_, worldTransformBlock->translation_);
+				worldTransformBlock->matWorld_ = worldMatrix;
+				// 定数バッファに転送する
+				worldTransformBlock->TransferMatrix();
+			}
+		}
+
+		countdownTimer_ += deltaTime;
+
+		// 1秒ごとに 3→2→1 と減らす
+		if (countdownValue_ > 0 && countdownTimer_ >= countdownInterval_) {
+			countdownTimer_ = 0.0f;
+			countdownValue_--;
+		}
+
+		// 1→0になった直後（=「GO!」表示フェーズ）
+		if (countdownValue_ == 0 && countdownTimer_ >= goHoldTime_) {
+			// GO! を一定時間出したら Play スタート
+			isCountingDown_ = false;
+			phase_ = Phase::kPlay;
+		}
+	} break;
+
 
 	case Phase::kPlay:
 		UpdatePlay(deltaTime);
@@ -342,6 +379,13 @@ void GameScene::Draw() {
 			model_->Draw(*worldTransformBlock, camera_, block_);
 		}
 	}
+
+	// ★カウントダウンのオーバーレイ（中央・大きく表示）
+	if (phase_ == Phase::kCountdown) {
+		
+	}
+
+
 
 	 // 最後にフェード
 	if (phase_ == Phase::kFadeIn || phase_ == Phase::kFadeOut) {
