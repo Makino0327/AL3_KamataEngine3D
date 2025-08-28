@@ -8,6 +8,8 @@ namespace {
 std::unordered_map<std::string, MapChipType> mapChipTable = {
     {"0", MapChipType::kBlank},
     {"1", MapChipType::kBlock},
+    {"2", MapChipType::kBlockRed }, // 追加
+    {"3", MapChipType::kBlockBlue}, // 追加
 };
 }
 
@@ -56,17 +58,13 @@ void MapChipField::LoadMapChipCsv(const std::string& filePath) {
 }
 
 MapChipType MapChipField::GetMapChipTypeByIndex(uint32_t xIndex, uint32_t yIndex) {
-	if (xIndex < 0 || kNumBlockHorizontal - 1 < xIndex)
-	{
+	if (xIndex >= kNumBlockHorizontal)
 		return MapChipType::kBlank;
-	}
-
-	if (yIndex < 0 || kNumBlockVirtical - 1 < yIndex) {
+	if (yIndex >= kNumBlockVirtical)
 		return MapChipType::kBlank;
-	}
-
 	return mapChipData_.data[yIndex][xIndex];
 }
+
 
 KamataEngine::Vector3 MapChipField::GetMapChipPositionByIndex(uint32_t xIndex, uint32_t yIndex) {
 	return KamataEngine::Vector3(kBlockWidth * xIndex, kBlockHeight * (kNumBlockVirtical - 1 - yIndex), 0);
@@ -97,3 +95,4 @@ Rect MapChipField::GetRectByIndex(uint32_t xIndex, uint32_t yIndex) {
 
 	return rect;
 }
+

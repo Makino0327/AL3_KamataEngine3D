@@ -35,11 +35,22 @@
     <ClCompile Include="Vector.cpp">
       <Filter>class</Filter>
     </ClCompile>
-    <ClCompile Include="DeathParticles.cpp" />
     <ClCompile Include="TitleScene.cpp">
       <Filter>class</Filter>
     </ClCompile>
-    <ClCompile Include="Fade.cpp" />
+    <ClCompile Include="DeathParticles.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Fade.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Scenery.cpp">
+      <Filter>class</Filter>
+    </ClCompile>
+    <ClCompile Include="Bullet.cpp" />
+    <ClCompile Include="MyMath.cpp" />
+    <ClCompile Include="MouseUtil.cpp" />
+    <ClCompile Include="AimUtil.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CameraController.h">
@@ -63,11 +74,22 @@
     <ClInclude Include="Vector.h">
       <Filter>class</Filter>
     </ClInclude>
-    <ClInclude Include="DeathParticles.h" />
     <ClInclude Include="TitleScene.h">
       <Filter>class</Filter>
     </ClInclude>
-    <ClInclude Include="Fade.h" />
+    <ClInclude Include="DeathParticles.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Fade.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Scenery.h">
+      <Filter>class</Filter>
+    </ClInclude>
+    <ClInclude Include="Bullet.h" />
+    <ClInclude Include="MyMath.h" />
+    <ClInclude Include="MouseUtil.h" />
+    <ClInclude Include="AimUtil.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\shaders\Obj.hlsli" />

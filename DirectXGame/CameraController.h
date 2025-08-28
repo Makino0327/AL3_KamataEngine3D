@@ -7,6 +7,11 @@ class Player;
 
 static inline const float kInterpolationRate = 0.1f;
 static inline const float kVelocityBias = 35.0f; // カメラの移動速度のバイアス
+// Y方向デッドゾーン（上に広く、下も少し広げる）
+static inline const float kDeadZoneTop = 120.0f;    // 上方向の許容(大きくすると動きにくくなる)
+static inline const float kDeadZoneBottom = -80.0f; // 下方向の許容(負の値)
+static inline const float kLerpY = 0.07f;           // Yの追従の遅さ（0〜1、小さいほどヌルい）
+
 
 static inline const Rect kCameraMargin = {
     -50.0f, // left
@@ -20,7 +25,7 @@ class CameraController
 private:
 	KamataEngine::Camera *camera_;
 	Player* target_ = nullptr;
-	Vector3 targetOffset_ = {0.0f, 0.0f, -35.0f}; // ターゲットからのオフセット
+	Vector3 targetOffset_ = {0.0f, 0.0f, -30.0f}; // ターゲットからのオフセット
 	Rect movableArea_ = {0, 100, 0, 100};
 	Vector3 targetPosition_;
 

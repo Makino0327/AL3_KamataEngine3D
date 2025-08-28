@@ -13,7 +13,7 @@
 using namespace KamataEngine;
 static inline const float kAcceleration = 0.01f; // プレイヤーの加速度
 static inline const float kAttenuation = 0.1f; // プレイヤーの減衰率f; 
-static inline const float kLimitRunSpeed = 0.4f;
+static inline const float kLimitRunSpeed = 0.3f;
 static inline const float kTimeTurn = 0.3f;
 static inline const float kGravityAcceleration = 0.015f; // 重力加速度
 static inline const float kLimitFallSpeed = 0.5f;       // 限界落下速度
@@ -98,7 +98,13 @@ private:
 	float spinTimer_ = 0.0f;
 	float spinDuration_ = 0.35f; // 一回転にかける時間（好みで調整）
 	float spinStartX_ = 0.0f;    // 開始時のX回転角（戻し用）
-public:
+
+	 bool firstJumpEvent_ = false; 
+
+	bool blocksAreRed_ = true;
+	 bool secondJumpEvent_ = false;
+
+ public:
 	/// <summary>
 	/// 初期化
 	/// </summary>
@@ -119,7 +125,11 @@ public:
 		mapChipField_ = mapChipField;
 	}
 
-	void InputMove(float deltaTime);
+	bool IsOnGround() const { return onGround_; }
+
+	
+
+	void InputMove();
 
 	void CheckCollisionMap(CollisionInfo& info);
 
@@ -145,4 +155,17 @@ public:
 
 	// 攻撃行動更新
 	void BehaviorAttackUpdate();
+
+	void SetBlocksAreRedPtr(const bool* p) { blocksAreRed_ = p; }
+
+    inline bool IsSolidForSwitch(MapChipType t, bool blocksAreRed);
+
+	inline MapChipType GetTypeSafe(int x, int y);
+
+	  bool ConsumeFirstJumpEvent();
+
+	   void SetBlocksAreRed(bool v) { blocksAreRed_ = v; } 
+
+	bool ConsumeSecondJumpEvent();
+
 };

@@ -6,7 +6,6 @@ void Skydome::Initialize() {
 }
 
 
-void Skydome::Draw(KamataEngine::Model* model, const KamataEngine::Camera& camera)
-{
-	model->Draw(worldTransform_, camera);
+void Skydome::Draw(KamataEngine::Model* model, const KamataEngine::Camera& camera, uint32_t textureHandle) {
+	model->Draw(worldTransform_, camera,textureHandle);
 }
