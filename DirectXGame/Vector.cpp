@@ -88,3 +88,45 @@ Vector3 Transform(const Vector3& v, const Matrix4x4& m) {
 	result.z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2];
 	return result;
 }
+
+// Vector3 の長さ
+inline float Length(const Vector3& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); }
+
+// 正規化（長さ1ベクトルにする）
+inline Vector3 Normalize(const Vector3& v) {
+	float len = Length(v);
+	if (len > 0.0f) {
+		return {v.x / len, v.y / len, v.z / len};
+	}
+	return {0.0f, 0.0f, 0.0f}; // 0ベクトルはそのまま
+}
+
+
+
+
+// Matrix4x4 の逆行列を求める
+Matrix4x4 Inverse(const Matrix4x4& m) {
+	Matrix4x4 result{};
+	float det =
+	    m.m[0][0] *
+	        (m.m[1][1] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) - m.m[1][2] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) + m.m[1][3] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1])) -
+	    m.m[0][1] *
+	        (m.m[1][0] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) - m.m[1][2] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) + m.m[1][3] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0])) +
+	    m.m[0][2] *
+	        (m.m[1][0] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) - m.m[1][1] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) + m.m[1][3] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0])) -
+	    m.m[0][3] *
+	        (m.m[1][0] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1]) - m.m[1][1] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0]) + m.m[1][2] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0]));
+
+	if (fabs(det) < 1e-6f) {
+		// 逆行列が存在しない場合は単位行列を返す
+		return MyMath::Identity();
+	}
+
+	//float invDet = 1.0f / det;
+
+	// 行列の余因子展開で求める（長いので省略可）
+	// 本格的には glm や DirectXMath の XMMatrixInverse を使うのが安全。
+
+	// → もし「回転+平行移動だけの行列」ならもっと簡単にできます👇
+	return result;
+}

@@ -13,23 +13,27 @@
 using namespace KamataEngine;
 static inline const float kAcceleration = 0.01f; // プレイヤーの加速度
 static inline const float kAttenuation = 0.1f; // プレイヤーの減衰率f; 
-static inline const float kLimitRunSpeed = 0.5f;
+static inline const float kLimitRunSpeed = 0.3f;
 static inline const float kTimeTurn = 0.3f;
-static inline const float kGravityAcceleration = 0.01f; // 重力加速度
+static inline const float kGravityAcceleration = 0.015f; // 重力加速度
 static inline const float kLimitFallSpeed = 0.5f;       // 限界落下速度
-static inline const float kJumpAcceleration = 0.5f;     // ジャンプ加速度
+static inline const float kJumpAcceleration = 0.4f;     // ジャンプ加速度
 static inline const float kWidth = 1.99f;
 static inline const float kHeight = 1.99f; // プレイヤーの高さ
 static inline const float kAttenuationLanding = 0.2f; // 例えば20%摩擦
 static inline const float kGroundingOffsetY = -0.05f; // 微小なマイナス値
 const float modelHeight = 2.0f;                       // 壁接触時の減衰率（例: 20% 減衰）
 static inline const float kAttenuationWall = 0.2f;
+
+
 class Enemy;
 enum class LRDirection
 {
 	kRight,
 	kLeft,
 };
+
+enum class BehaviorState { kRoot, kAttack };
 
 // マップとの衝突判定情報
 struct CollisionInfo {
@@ -78,8 +82,29 @@ private:
 	bool isDead_ = false;
 	float modelYOffset_ = 1.0f; // モデル中心 → 足元 までの補正値
 
+	
+	BehaviorState behaviorState_ = BehaviorState::kRoot;
 
-public:
+	float attackTimer_ = 0.0f;
+	static constexpr float kAttackDuration_ = 0.30f; // 攻撃の持続秒
+	float attackScaleTimer_ = 0.0f;
+	const float kAttackScaleDuration = 0.2f; // 縮む時間（秒）
+	                                         // --- Double Jump ---
+	int jumpCount_ = 0;                      // 実行済みジャンプ回数
+	int maxJumps_ = 2;                       // 上限（2で二段ジャンプ）
+
+	// --- Spin on 2nd jump ---
+	bool spinActive_ = false;
+	float spinTimer_ = 0.0f;
+	float spinDuration_ = 0.35f; // 一回転にかける時間（好みで調整）
+	float spinStartX_ = 0.0f;    // 開始時のX回転角（戻し用）
+
+	 bool firstJumpEvent_ = false; 
+
+	bool blocksAreRed_ = true;
+	 bool secondJumpEvent_ = false;
+
+ public:
 	/// <summary>
 	/// 初期化
 	/// </summary>
@@ -100,7 +125,11 @@ public:
 		mapChipField_ = mapChipField;
 	}
 
-	void InputMove(float deltaTime);
+	bool IsOnGround() const { return onGround_; }
+
+	
+
+	void InputMove();
 
 	void CheckCollisionMap(CollisionInfo& info);
 
@@ -121,4 +150,22 @@ public:
 	void OnCollision();
 	bool IsDead() const { return isDead_; }
 	WorldTransform& GetWorldTransform() { return worldTransform_; }
+
+	void BehaviorRootUpdate(float deltaTime);
+
+	// 攻撃行動更新
+	void BehaviorAttackUpdate();
+
+	void SetBlocksAreRedPtr(const bool* p) { blocksAreRed_ = p; }
+
+    inline bool IsSolidForSwitch(MapChipType t, bool blocksAreRed);
+
+	inline MapChipType GetTypeSafe(int x, int y);
+
+	  bool ConsumeFirstJumpEvent();
+
+	   void SetBlocksAreRed(bool v) { blocksAreRed_ = v; } 
+
+	bool ConsumeSecondJumpEvent();
+
 };

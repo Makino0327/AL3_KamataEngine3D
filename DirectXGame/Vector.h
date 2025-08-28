@@ -1,5 +1,6 @@
 #pragma once
 #include <cmath>
+#include "MyMath.h"
 #include "KamataEngine.h"
 using namespace KamataEngine;
 
@@ -37,3 +38,14 @@ inline Vector3 Add(const Vector3& v1, const Vector3& v2) { return {v1.x + v2.x, 
 bool IsCollisionAABB(const AABB& a, const AABB& b);
 
 Vector3 Transform(const Vector3& v, const Matrix4x4& m);
+
+inline void Commit(WorldTransform& wt) {
+	wt.matWorld_ = MakeAffineMatrix(wt.scale_, wt.rotation_, wt.translation_);
+	wt.TransferMatrix();
+}
+
+inline float Length(const Vector3& v);
+
+inline Vector3 Normalize(const Vector3& v);
+
+Matrix4x4 Inverse(const Matrix4x4& m);
