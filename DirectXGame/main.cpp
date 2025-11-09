@@ -12,66 +12,62 @@ enum class Scene {
 	kGame,
 };
 
-Scene currentScene = Scene::kTitle;
+Scene currentScene = Scene::kGame;
 Scene scene = Scene::kUnknown;
 
 void ChangeScene() {
 	switch (scene) {
 	case Scene::kTitle:
-		if (titleScene->IsFinished()) {
-			// シーン変更
+		if (titleScene && titleScene->IsFinished()) {
+			// もうTitle使わないなら、この分岐自体を消してOK
+			// （使い続けるならここでGameScene遷移を書く）
 			scene = Scene::kGame;
-
-			// 旧シーンの解放
 			delete titleScene;
 			titleScene = nullptr;
-
-			// 新シーンの生成と初期化
 			gameScene = new GameScene();
 			gameScene->Initialize();
 		}
 		break;
 
 	case Scene::kGame:
-		if (gameScene->IsFinished()) {
-			// シーン変更
-			scene = Scene::kTitle;
-
-			// 旧シーンの解放
+		if (gameScene && gameScene->IsFinished()) {
+			// ★Titleに戻さず、GameSceneを作り直してリスタート
 			delete gameScene;
 			gameScene = nullptr;
-
-			// 新シーンの生成と初期化
-			titleScene = new TitleScene();
-			titleScene->Initialize();
+			gameScene = new GameScene();
+			gameScene->Initialize();
+			// scene はずっと Scene::kGame のまま
 		}
 		break;
-
 	}
 }
 
-void UpdateScene()
-{
+
+void UpdateScene() {
 	switch (scene) {
 	case Scene::kTitle:
-		titleScene->Update();
+		if (titleScene)
+			titleScene->Update();
 		break;
 	case Scene::kGame:
-		gameScene->Update();
+		if (gameScene)
+			gameScene->Update();
 		break;
 	}
 }
-
 void DrawScene() {
 	switch (scene) {
 	case Scene::kTitle:
-		titleScene->Draw();
+		if (titleScene)
+			titleScene->Draw();
 		break;
 	case Scene::kGame:
-		gameScene->Draw();
+		if (gameScene)
+			gameScene->Draw();
 		break;
 	}
 }
+
 
 
 // Windowsアプリでのエントリーポイント(main関数)
@@ -82,9 +78,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 
-	scene = Scene::kTitle;
-	titleScene = new TitleScene;
-	titleScene->Initialize();
+	scene = Scene::kGame;
+	gameScene = new GameScene();
+	gameScene->Initialize();
 
 	while (true) {
 		if (KamataEngine::Update()){
@@ -108,7 +104,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	KamataEngine::Finalize();
 
+	delete titleScene;
+	titleScene = nullptr;
 	delete gameScene;
+	gameScene = nullptr;
+
 
 
 	return 0;

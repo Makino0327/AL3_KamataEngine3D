@@ -51,96 +51,8 @@ void GameScene::Initialize() {
 	mapChipField_ = new MapChipField();
 
 	// Initialize 内
-	treeModel_ = Model::CreateFromOBJ("tree", true);
-	uint32_t treeTex = TextureManager::Load("./Resources/tree/tree.png"); // 画像あるなら
-
 
 	srand(static_cast<unsigned int>(time(nullptr)));
-
-	const Vector3 posList[] = {
-	    {28.0f, 0.0f, 1.0f},
-	    {50.0f, 0.0f, 1.0f},
-        {102.0f, 0.0f, 1.0f},
-        {130.0f, 0.0f, 1.0f},
-        {170.0f, 0.0f, 1.0f},
-        {200.0f, 0.0f, 1.0f},
-        {250.0f, 0.0f, 1.0f},
-	    {300.0f, 0.0f, 1.0f},
-        {350.0f, 0.0f, 1.0f},
-        {400.0f, 0.0f, 1.0f},
-        {450.0f, 0.0f, 1.0f},
-        {500.0f, 0.0f, 1.0f},
-        {550.0f, 0.0f, 1.0f},
-        {600.0f, 0.0f, 1.0f},
-	};
-	for (auto& p : posList) {
-		auto* t = new Scenery();
-		t->Initialize(treeModel_, &camera_, p, {1.0f, 15.0f, 15.0f});
-		t->SetTexture(treeTex);
-
-		   // ★ 90° or 270° に限定
-		int r = rand() % 2;
-		float yaw = (r == 0) ? std::numbers::pi_v<float> / 2.0f  // 90°
-		                     : std::numbers::pi_v<float> * 1.5f; // 270°
-		t->SetYaw(yaw);
-
-		trees_.push_back(t);
-	}
-
-	 // モデル＆テクスチャ読込
-	grassModel_ = Model::CreateFromOBJ("grass", true);
-
-	// PNG を使う場合（無いならこの行は外す）
-	grassTex_ = TextureManager::Load("./Resources/grass/grass.png");
-
-	// 乱数は一度だけ初期化（すでにどこかでやっていれば不要）
-	srand(static_cast<unsigned int>(time(nullptr)));
-
-	// 置き場所（必要に応じて調整）――“木のそば”にサンプル配置
-	const Vector3 grassPosList[] = {
-	    {28.0f, 0.0f, 0.5f},
-	    {48.0f, 0.0f, 0.5f},
-	    {68.0f, 0.0f, 0.5f},
-        {98.0f, 0.0f, 0.5f},
-        {108.0f, 0.0f, 0.5f},
-        {120.0f, 0.0f, 0.5f},
-		{156.0f, 0.0f, 0.5f},
-        {208.0f, 0.0f, 0.5f},
-        {233.0f, 0.0f, 0.5f},
-        {286.0f, 0.0f, 0.5f},
-        {299.0f, 0.0f, 0.5f},
-	    {310.0f, 0.0f, 0.5f},
-        {350.0f, 0.0f, 0.5f},
-        {366.0f, 0.0f, 0.5f},
-        {400.0f, 0.0f, 0.5f},
-	    {411.0f, 0.0f, 0.5f},
-        {500.0f, 0.0f, 0.5f},
-        {600.0f, 0.0f, 0.5f},
-        
-	};
-
-	for (const auto& p : grassPosList) {
-		Scenery* g = new Scenery();
-
-		// 草はやや小さめ（お好みで調整）
-		Vector3 s = {1.0f, 7.0f, 10.0f};
-		g->Initialize(grassModel_, &camera_, p, s);
-
-		// PNG を使う場合のみ
-		g->SetTexture(grassTex_);
-
-		// 向き：90° or 270°（要求通り）
-		int r = rand() % 2;
-		float yaw = (r == 0) ? std::numbers::pi_v<float> / 2.0f  // 90°
-		                     : std::numbers::pi_v<float> * 1.5f; // 270°
-		g->SetYaw(yaw);
-
-		// 必要なら微スケール差（任意。いらなければ削除）
-		// float k = 0.9f + (rand() % 21) * 0.01f; // 0.90〜1.10
-		// g->SetScale({s.x*k, s.y*k, s.z*k});
-
-		grasses_.push_back(g);
-	}
 
 	player_ = new Player();
 	// モデルとテクスチャは一度だけ作成
@@ -152,8 +64,6 @@ void GameScene::Initialize() {
 	enemyModel_ = Model::CreateFromOBJ("dog", true);
 	uint32_t enemyTex = TextureManager::Load("./Resources/dog/Atlas_Monsters.png");
 	// （PNGを使うなら）
-	block_ = TextureManager::Load("./Resources/grassBlock/grassBlock.png");
-	blockTexGrass_ = block_; 
 	blockTexRed_ = TextureManager::Load("./Resources/cube/block_red.jpg");
 	blockTexBlue_ = TextureManager::Load("./Resources/cube/block_blue.jpg");
 
@@ -172,8 +82,6 @@ void GameScene::Initialize() {
 	const uint32_t kNumBlockHorizontal = 20;
 	// テクスチャの読み込み
 	// ↓ キューブ → 草ブロックOBJに差し替え
-	model_ = Model::CreateFromOBJ("grassBlock", true);
-
 	
 
 	skyDomeTexture_ = TextureManager::Load("./Resources/skyDome.png");
@@ -187,21 +95,21 @@ void GameScene::Initialize() {
 	}
 	// 座標をマップチップ番号で指定
 	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
-	playerModel_ = Model::CreateFromOBJ("cat", true);
-	playerPosition = {-30.0f, 13.0f, 0.0f};
+	playerModel_ = Model::CreateFromOBJ("cube", true);
+	playerPosition = {21.0f, 12.0f, 0.0f};
 	particleModel_ = Model::CreateFromOBJ("particle", true);
 	// 仮の生成処理。後で条件つけて呼び出すようにする
 
 
 	// ▼カウントダウンOBJの読み込み
-	countModel3_ = Model::CreateFromOBJ("Count3", true);
-	countModel2_ = Model::CreateFromOBJ("Count2", true);
-	countModel1_ = Model::CreateFromOBJ("Count1", true);
-	countModelGO_ = Model::CreateFromOBJ("CountGO", true);
+	//countModel3_ = Model::CreateFromOBJ("Count3", true);
+	//countModel2_ = Model::CreateFromOBJ("Count2", true);
+	//countModel1_ = Model::CreateFromOBJ("Count1", true);
+	//countModelGO_ = Model::CreateFromOBJ("CountGO", true);
 
-	countWT_.Initialize();
-	// 初期スケール（Blender実寸に応じて後で調整）
-	countWT_.scale_ = {3.0f, 3.0f, 3.0f};
+	//countWT_.Initialize();
+	//// 初期スケール（Blender実寸に応じて後で調整）
+	//countWT_.scale_ = {3.0f, 3.0f, 3.0f};
 
 	player_->Initialize(playerModel_, &camera_, playerPosition); // ← テクスチャを敵に設定
 	player_->SetMapChipField(mapChipField_);      
@@ -273,14 +181,19 @@ void GameScene::Initialize() {
 	goalArea_.min = {(mapCols - 1) * tileW - tileW * 0.5f, 0.0f, -0.5f};
 	goalArea_.max = {(mapCols - 1) * tileW + tileW * 0.5f, mapRows * tileH, +0.5f};
 
-	// ★タイル端に合わせた可動範囲（中心座標のClamp範囲）
+	// --- 余白設定 ---
+	const float marginX = 3.5f * BW; // 左右に「3マスぶん」余裕（好みに応じて調整）
+	const float marginY = 1.0f * BH; // 上下のマージン（必要なら）
+
+	// --- 範囲設定 ---
 	Rect area{};
-	area.left = (-BW * 0.5f) + halfW;
-	area.right = (NX * BW - BW * 0.5f) - halfW;
-	area.bottom = (-BH * 0.5f) + halfH;
-	area.top = (NY * BH - BH * 0.5f) - halfH;
+	area.left = halfW - BW * 0.5f - marginX;              // 左をさらに左へ
+	area.right = (NX * BW) - halfW - BW * 0.5f + marginX; // 右をさらに右へ
+	area.bottom = halfH - BH * 0.5f - marginY;
+	area.top = (NY * BH) - halfH - BH * 0.5f + marginY;
 
 	cameraController_.SetMovableArea(area);
+
 	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
 
 	fade_ = new Fade();
@@ -521,22 +434,22 @@ void GameScene::Update() {
 		Vector3 camPos = camera_.translation_;
 		Vector3 camFwd{camera_.matView.m[2][0], camera_.matView.m[2][1], camera_.matView.m[2][2]};
 
-		float dist = 6.0f; // near/far の間に収める（3〜10で調整可）
-		countWT_.translation_ = {camPos.x + camFwd.x * dist, camPos.y + camFwd.y * dist + 4.0f - 4.0f, camPos.z + camFwd.z * dist};
+		//float dist = 6.0f; // near/far の間に収める（3〜10で調整可）
+		//countWT_.translation_ = {camPos.x + camFwd.x * dist, camPos.y + camFwd.y * dist + 4.0f - 4.0f, camPos.z + camFwd.z * dist};
 
-		// 2) 向き（寝てるならXに+π/2、正面調整にY=π）
-		countWT_.rotation_ = {
-		    std::numbers::pi_v<float> / 2.0f, // X
-		    std::numbers::pi_v<float>,        // Y
-		    0.0f};
+		//// 2) 向き（寝てるならXに+π/2、正面調整にY=π）
+		//countWT_.rotation_ = {
+		//    std::numbers::pi_v<float> / 2.0f, // X
+		//    std::numbers::pi_v<float>,        // Y
+		//    0.0f};
 
-		float showT = std::min(countdownTimer_ / 0.2f, 1.0f); // 最初の0.2秒でふわっと
-		float s = std::lerp(1.5f, 2.0f, showT);
-		countWT_.scale_ = {s, s, s};
+		//float showT = std::min(countdownTimer_ / 0.2f, 1.0f); // 最初の0.2秒でふわっと
+		//float s = std::lerp(1.5f, 2.0f, showT);
+		//countWT_.scale_ = {s, s, s};
 
-		// 転送
-		countWT_.matWorld_ = MakeAffineMatrix(countWT_.scale_, countWT_.rotation_, countWT_.translation_);
-		countWT_.TransferMatrix();
+		//// 転送
+		//countWT_.matWorld_ = MakeAffineMatrix(countWT_.scale_, countWT_.rotation_, countWT_.translation_);
+		//countWT_.TransferMatrix();
 	} break;
 
 	case Phase::kPlay:
