@@ -106,8 +106,6 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="AimUtil.cpp" />
-    <ClCompile Include="Bullet.cpp" />
     <ClCompile Include="CameraController.cpp" />
     <ClCompile Include="DeathParticles.cpp" />
     <ClCompile Include="Enemy.cpp" />
@@ -115,7 +113,6 @@
     <ClCompile Include="GameScene.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MapChipField.cpp" />
-    <ClCompile Include="MouseUtil.cpp" />
     <ClCompile Include="MyMath.cpp" />
     <ClCompile Include="Scenery.cpp" />
     <ClCompile Include="Skydome.cpp" />
@@ -199,15 +196,12 @@
     <None Include="Resources\shaders\Sprite.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AimUtil.h" />
-    <ClInclude Include="Bullet.h" />
     <ClInclude Include="CameraController.h" />
     <ClInclude Include="DeathParticles.h" />
     <ClInclude Include="Enemy.h" />
     <ClInclude Include="Fade.h" />
     <ClInclude Include="GameScene.h" />
     <ClInclude Include="MapChipField.h" />
-    <ClInclude Include="MouseUtil.h" />
     <ClInclude Include="MyMath.h" />
     <ClInclude Include="Scenery.h" />
     <ClInclude Include="Skydome.h" />
