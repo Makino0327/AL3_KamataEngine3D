@@ -57,33 +57,42 @@ void Player::Draw() {
 }
 
 void Player::InputMove() {
-	// ★常に右へオートラン
-	const float targetSpeed = kLimitRunSpeed; // 既存の上限速度を目標に使う（0.4f）
-	const float accel = kAcceleration;        // 既存の加速度（0.01f）
+	const float accel = kAcceleration;
+	const float maxSpeed = kLimitRunSpeed;
+	const float friction = kAttenuation;
 
-	// 右向き固定（見た目の向き）
-	lrDirection_ = LRDirection::kRight;
-	worldTransform_.rotation_.y = std::numbers::pi_v<float> / 2.0f; // 右（90°）
+	// 入力取得
+	bool left = Input::GetInstance()->PushKey(DIK_A);
+	bool right = Input::GetInstance()->PushKey(DIK_D);
 
-	// 現在速度を目標に寄せる（加速）
-	if (velocity_.x < targetSpeed) {
-		velocity_.x = std::min(targetSpeed, velocity_.x + accel);
-	} else if (velocity_.x > targetSpeed) {
-		// 何らかの拍子に上回ったら少しだけ減衰
-		velocity_.x *= (1.0f - kAttenuation);
-		// 過剰に落ちすぎないようクランプ
-		velocity_.x = std::max(velocity_.x, targetSpeed);
+	// 入力に応じた速度変化
+	if (left) {
+		velocity_.x -= accel;
+		lrDirection_ = LRDirection::kLeft;
+		worldTransform_.rotation_.y = -std::numbers::pi_v<float> / 2.0f; // 左向き
+	}
+	if (right) {
+		velocity_.x += accel;
+		lrDirection_ = LRDirection::kRight;
+		worldTransform_.rotation_.y = std::numbers::pi_v<float> / 2.0f; // 右向き
 	}
 
-	// 左向き速度がついたら（壁衝突直後など）ブレーキ
-	if (velocity_.x < 0.0f) {
-		velocity_.x *= (1.0f - kAttenuation);
+	// 摩擦減衰（入力なし時）
+	if (!left && !right) {
+		velocity_.x *= (1.0f - friction);
+		if (std::fabs(velocity_.x) < 0.001f) {
+			velocity_.x = 0.0f;
+		}
 	}
 
-	// === プレイヤーのワールド行列更新（必要なら）===
+	// 最大速度制限
+	velocity_.x = std::clamp(velocity_.x, -maxSpeed, maxSpeed);
+
+	// --- 行列更新 ---
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
 }
+
 
 void Player::CheckCollisionMapTop(CollisionInfo& info) {
 	if (info.move.y <= 0.0f) {
