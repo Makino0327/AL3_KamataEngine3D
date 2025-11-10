@@ -29,7 +29,7 @@ void Player::Update(float deltaTime) {
 	// 状態ごとの更新
 	switch (behaviorState_) {
 	case BehaviorState::kRoot:
-		BehaviorRootUpdate(deltaTime);
+		BehaviorRootUpdate();
 		break;
 
 	case BehaviorState::kAttack:
@@ -426,7 +426,7 @@ void Player::OnCollision() {
 	}
 }
 
-void Player::BehaviorRootUpdate(float deltaTime) {
+void Player::BehaviorRootUpdate() {
 	// スケールを戻す
 	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
 	// タイマーリセット
@@ -435,31 +435,57 @@ void Player::BehaviorRootUpdate(float deltaTime) {
 	// 入力による移動
 	InputMove();
 
+	bool left = Input::GetInstance()->PushKey(DIK_A);
+	bool right = Input::GetInstance()->PushKey(DIK_D);
 	const bool jumpPressed = Input::GetInstance()->TriggerKey(DIK_SPACE);
-	if (jumpPressed && jumpCount_ < maxJumps_) {
 
-		// 2回目ジャンプになるか？（jumpCount_==1 なら今から2回目）
-		const bool isSecondJump = (jumpCount_ == 1);
+	// --- 壁ジャンプの先行判定（前フレームの接触情報で判断）---
+	bool wantWallJump = false;
+	int wallDirForJump = 0; // -1=左壁 / +1=右壁
+	if (!onGround_ && jumpPressed) {
+		if (prevHitLeft_ && left) {
+			wantWallJump = true;
+			wallDirForJump = -1;
+		}
+		if (prevHitRight_ && right) {
+			wantWallJump = true;
+			wallDirForJump = +1;
+		}
+	}
 
-		if (velocity_.y < 0.0f)
-			velocity_.y = 0.0f;          // 落下打ち消し
-		velocity_.y = kJumpAcceleration; // 初速は代入
+	if (wantWallJump) {
+		// 壁から離れる方向にキック
+		velocity_.x = (wallDirForJump == -1) ? +kWallJumpVelX : -kWallJumpVelX;
+		velocity_.y = kWallJumpVelY;
 		onGround_ = false;
+		wallSliding_ = false;
+		// 壁ジャンプ後は二段不可に（＝もう使い切った扱い）
+		jumpCount_ = maxJumps_;
+		// スピン演出も封じる
+		spinActive_ = false;
+		secondJumpEvent_ = false;
+	} else {
+		// 通常ジャンプ（壁すべり中は二段不可）
+		if (jumpPressed && jumpCount_ < maxJumps_) {
+			// 2回目ジャンプになるか？
+			const bool isSecondJump = (jumpCount_ == 1);
 
-		// ★ここがポイント：1段目の瞬間だけイベントを立てる
-		if (!isSecondJump) {
-			firstJumpEvent_ = true; // ←追加
+			if (velocity_.y < 0.0f)
+				velocity_.y = 0.0f;
+			velocity_.y = kJumpAcceleration;
+			onGround_ = false;
+
+			if (!isSecondJump) {
+				firstJumpEvent_ = true;
+			} else {
+				// 二段ジャンプ演出（すべり中はこのブロックに入らないよう後段で制御）
+				secondJumpEvent_ = true;
+				spinActive_ = true;
+				spinTimer_ = 0.0f;
+				spinStartX_ = worldTransform_.rotation_.x;
+			}
+			++jumpCount_;
 		}
-
-		// ★2回目ならスピン開始
-		if (isSecondJump) {
-			secondJumpEvent_ = true;     
-			spinActive_ = true;
-			spinTimer_ = 0.0f;
-			spinStartX_ = worldTransform_.rotation_.x; // 現在角度を基準に回す
-		}
-
-		++jumpCount_;
 	}
 
 	// 空中中は重力
@@ -468,47 +494,62 @@ void Player::BehaviorRootUpdate(float deltaTime) {
 		velocity_.y = std::max(velocity_.y, -kLimitFallSpeed);
 	}
 
-
-
-
-	// --- 衝突前の移動量を CollisionInfo に渡す ---
 	CollisionInfo collisionInfo;
 	collisionInfo.move = velocity_;
 
 	// --- マップとの衝突判定 ---
 	CheckCollisionMap(collisionInfo);
 
-	// --- 接地 or 空中状態の切り替え処理 ---
+	// ← この時点で今フレームの壁接触が分かる
+	bool hitL = collisionInfo.isHitLeft;
+	bool hitR = collisionInfo.isHitRight;
+
+	// --- 壁すべり判定 ---
+	wallSliding_ = false;
+	wallDir_ = 0;
+	if (!onGround_ && velocity_.y < 0.0f) {
+		if (hitL && left) {
+			wallSliding_ = true;
+			wallDir_ = -1;
+		}
+		if (hitR && right) {
+			wallSliding_ = true;
+			wallDir_ = +1;
+		}
+	}
+	// すべり中は落下速度を弱め、二段を封じる
+	if (wallSliding_) {
+		if (velocity_.y < kWallSlideMaxFall)
+			velocity_.y = kWallSlideMaxFall;
+		// 二段不可：すでに1回使っている扱い
+		jumpCount_ = std::max(jumpCount_, 1);
+		// スピン禁止
+		spinActive_ = false;
+		secondJumpEvent_ = false;
+
+		// 衝突解決に使う移動量も更新
+		collisionInfo.move.y = velocity_.y;
+	}
+
+	// --- 接地 or 空中状態の切り替え ---
 	ChangeGroundState(collisionInfo);
 
 	// --- 上方向の天井判定 ---
 	CheckCollisionMapTop(collisionInfo);
 
 	// --- 衝突後の移動量を適用 ---
-	// 衝突後の移動量を適用
 	ApplyCollisionResult(collisionInfo);
 
-	// 壁との接触による速度減衰処理を追加
+	// 壁との接触による速度減衰
 	ProcessWallCollision(collisionInfo);
 
 	// --- 天井に当たってたらY速度を止める ---
 	CheckHitCeiling(collisionInfo);
 
-	// ★ここを「行列更新の直前」に追加
-	if (spinActive_) {
-		spinTimer_ += deltaTime;
-		float t = std::clamp(spinTimer_ / spinDuration_, 0.0f, 1.0f);
+	// このフレームの壁接触を保存（次フレームの“即時壁ジャンプ”受付用）
+	prevHitLeft_ = hitL;
+	prevHitRight_ = hitR;
 
-		// 等速で 0 → 2π（前転）回す。演出を変えたければイージングしてOK
-		float angle = t * (2.0f * std::numbers::pi_v<float>);
-		worldTransform_.rotation_.x = spinStartX_ + angle;
-
-		if (t >= 1.0f) {
-			spinActive_ = false; // 回転終了
-			// 戻したければ次行を有効化：
-			// worldTransform_.rotation_.x = 0.0f;
-		}
-	}
 
 
 	// --- 行列更新（Update の最後）---

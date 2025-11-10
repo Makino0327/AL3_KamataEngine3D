@@ -104,6 +104,22 @@ private:
 	bool blocksAreRed_ = true;
 	 bool secondJumpEvent_ = false;
 
+	 // --- 壁キック用チューニング ---
+	 static constexpr float kWallSlideMaxFall = -0.18f; // 壁すべり中の最大落下速度(下はマイナス)
+	                                                    // Player.h
+	 static constexpr float kWallJumpVelX = 0.35f;      // ← 0.50f から弱め
+	 static constexpr float kWallJumpVelY = 0.42f;      // ← 0.65f から弱め
+
+
+	 // 状態
+	 bool wallSliding_ = false; // 壁すべり中？
+	 int wallDir_ = 0;          // -1=左壁 / +1=右壁 / 0=なし
+
+	 // 「前フレームで壁に触れてたか」保持（同フレームでのジャンプ受付のため）
+	 bool prevHitLeft_ = false;
+	 bool prevHitRight_ = false;
+
+
  public:
 	/// <summary>
 	/// 初期化
@@ -151,7 +167,7 @@ private:
 	bool IsDead() const { return isDead_; }
 	WorldTransform& GetWorldTransform() { return worldTransform_; }
 
-	void BehaviorRootUpdate(float deltaTime);
+	void BehaviorRootUpdate();
 
 	// 攻撃行動更新
 	void BehaviorAttackUpdate();
