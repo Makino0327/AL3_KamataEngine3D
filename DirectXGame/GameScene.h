@@ -1,91 +1,129 @@
 #pragma once
-#define NOMINMAX // ← これを *Windows.h より前* に
-#include <Windows.h>
-#include <algorithm> // ← std::min / std::max はここ
 
+// =========================================
+// Windows / STL
+// =========================================
+#define NOMINMAX // Windows の min/max マクロ無効化（Windows.h より前）
+#include <Windows.h>
+
+#include <algorithm> // std::min / std::max / std::clamp など
+#include <cmath>     // std::fabs / std::sin / std::cos など
+#include <cstdint>   // uint32_t を安全に使う（環境によっては必須）
+#include <list>      // std::list（※ enemies_ / trees_ / grasses_ で使ってる）
+#include <vector>    // std::vector
+
+// =========================================
+// Project / Engine
+// =========================================
 #include "KamataEngine.h"
-#include <vector>
-#include <cmath>
-#include "Skydome.h"
+
+// 依存ヘッダ（そのまま・順番だけ整理）
+#include "CameraController.h"
+#include "DeathParticles.h"
+#include "Enemy.h"
+#include "Fade.h"
 #include "MapChipField.h"
 #include "Player.h"
-#include "Vector.h"
-#include "CameraController.h"
-#include "Enemy.h" 
-#include "DeathParticles.h"
-#include "Fade.h"
-#include "TitleScene.h"
 #include "Scenery.h"
+#include "Skydome.h"
+#include "TitleScene.h"
+#include "Vector.h"
 
-
+// =========================================
+// GameScene
+// =========================================
 class GameScene {
 public:
-	// 3Dモデルデータ
-	KamataEngine::Model* model_ = nullptr;
-	// カメラ
-	KamataEngine::Camera camera_;
-	// ワールドトランスフォーム
-	KamataEngine::WorldTransform worldTransform_;
-	// ワールドトランスフォーム
-	std::vector<std::vector<KamataEngine::WorldTransform*>> worldTransformBlocks_;
-	// テクスチャハンドル
-	uint32_t block_ = 0;
+	// -----------------------------
+	// Core (Model / Camera / World)
+	// -----------------------------
+	KamataEngine::Model* model_ = nullptr;        // 3Dモデルデータ
+	KamataEngine::Camera camera_;                 // カメラ
+	KamataEngine::WorldTransform worldTransform_; // ワールドトランスフォーム
 
-	uint32_t skyDomeTexture_ = 0; // スカイドームのテクスチャハンドル
-	// デバックカメラ有効
-	bool isDebugCameraActive_ = false;
-	// デバックカメラ
-	KamataEngine::DebugCamera* debugCamera_ = nullptr;
-	// スカイドーム
-	Skydome *skydome_=nullptr;
-	KamataEngine::Model* skydomeModel_ = nullptr;
-	// マップチップフィールド
-	MapChipField* mapChipField_;
-	CameraController cameraController_;
+	// -----------------------------
+	// Blocks / Map
+	// -----------------------------
+	std::vector<std::vector<KamataEngine::WorldTransform*>> worldTransformBlocks_; // ブロックWT
+	uint32_t block_ = 0;                                                           // ブロック用テクスチャ等（用途名はそのまま）
+	MapChipField* mapChipField_;                                                   // マップチップフィールド
 
-	DeathParticles* deathParticles_ = nullptr;
+	// -----------------------------
+	// Sky / Debug Camera
+	// -----------------------------
+	uint32_t skyDomeTexture_ = 0;                      // スカイドームのテクスチャハンドル
+	bool isDebugCameraActive_ = false;                 // デバックカメラ有効
+	KamataEngine::DebugCamera* debugCamera_ = nullptr; // デバックカメラ
+	Skydome* skydome_ = nullptr;                       // スカイドーム
+	KamataEngine::Model* skydomeModel_ = nullptr;      // スカイドームモデル
 
-	// GameScene.h
+	// -----------------------------
+	// Camera Controller
+	// -----------------------------
+	CameraController cameraController_; // カメラ制御
+
+	// -----------------------------
+	// Particles
+	// -----------------------------
+	DeathParticles* deathParticles_ = nullptr;     // 死亡パーティクル
+	KamataEngine::Model* particleModel_ = nullptr; // パーティクル用モデル
+
+	// -----------------------------
+	// GameOver (draw/anime helpers)
+	// -----------------------------
 	bool goDrawnThisFrame_ = false; // 今フレーム GameOver を描いたか
 	bool goUseProxyCube_ = false;   // 代替：ブロックで描くトグル
-	Vector3 goLastPos_{};
+	Vector3 goLastPos_{};           // 最後に描いた位置
 
-	// GameScene.h（GameOver用アニメ用）
-	float goAnimT_ = 0.0f;
-	Vector3 goBasePos_;
-	bool goDrop_ = false;
-	// プレイヤー
-	Player* player_;
-	KamataEngine::Model* playerModel_ = nullptr;
-	KamataEngine::Model* particleModel_ = nullptr; // パーティクル用のモデル
-	std::list<Enemy*> enemies_; // Enemyのポインタ
-	KamataEngine::Model* enemyModel_ = nullptr; // または Model::CreateFromOBJ("enemy", true) など
+	float goAnimT_ = 0.0f; // GameOver用アニメT
+	Vector3 goBasePos_{};  // 基準位置
+	bool goDrop_ = false;  // 落下演出フラグ
 
+	// -----------------------------
+	// Player
+	// -----------------------------
+	Player* player_;                             // プレイヤー
+	KamataEngine::Model* playerModel_ = nullptr; // プレイヤーモデル
 
+	// -----------------------------
+	// Enemies
+	// -----------------------------
+	std::list<Enemy*> enemies_;                 // Enemyのポインタ
+	KamataEngine::Model* enemyModel_ = nullptr; // Enemyモデル
+	uint32_t enemyTex = 0;                      // Enemyテクスチャ
+
+	// -----------------------------
+	// Scene State / Phase
+	// -----------------------------
 	bool finished_ = false;
+	Phase phase_ = Phase::kFadeIn; // ※ Phase がどこで定義されるかはそのまま
 
-	Phase phase_ = Phase::kFadeIn;
+	// -----------------------------
+	// Fade
+	// -----------------------------
+	Fade* fade_ = nullptr; // フェード用
 
-	Fade* fade_ = nullptr; // フェード用のオブジェクト
-
-	// 追加するメンバ
+	// -----------------------------
+	// GameOver / GameClear (Models)
+	// -----------------------------
 	KamataEngine::Model* gameOverModel_ = nullptr;
 	KamataEngine::WorldTransform gameOverWT_;
-	float gameOverAnimT_ = 0.0f; // 簡単な登場アニメ用
+	float gameOverAnimT_ = 0.0f; // 登場アニメ用
 
-	AABB goalArea_{};
-	// GameClear 表示用
+	AABB goalArea_{}; // ゴール判定領域（型はそのまま）
+
 	KamataEngine::Model* gameClearModel_ = nullptr;
 	KamataEngine::WorldTransform gameClearWT_{};
 
-	// ▼カウントダウン用
+	// -----------------------------
+	// Countdown
+	// -----------------------------
 	KamataEngine::Model* countModel3_ = nullptr;
 	KamataEngine::Model* countModel2_ = nullptr;
 	KamataEngine::Model* countModel1_ = nullptr;
 	KamataEngine::Model* countModelGO_ = nullptr;
 
 	KamataEngine::WorldTransform countWT_;
-	// GameScene のメンバに追加
 	bool isCountingDown_ = false;
 
 	float countdownTimer_ = 0.0f;
@@ -93,65 +131,86 @@ public:
 	const float countdownInterval_ = 1.0f; // 各数字を出す秒数
 	const float goHoldTime_ = 0.8f;        // GOを出しておく秒数
 
-    KamataEngine::Model* treeModel_ = nullptr;
+	// -----------------------------
+	// Scenery (Trees / Grass)
+	// -----------------------------
+	KamataEngine::Model* treeModel_ = nullptr;
+	std::list<Scenery*> trees_; // 背景：木
 
-	// 背景用オブジェクトは list を使う
-	std::list<Scenery*> trees_;
-
-	 // --- grass 用 ---
 	KamataEngine::Model* grassModel_ = nullptr;
 	uint32_t grassTex_ = 0;
-	std::list<Scenery*> grasses_; // ← 木と同じ扱い（list）
+	std::list<Scenery*> grasses_; // 背景：草
 
-	// テクスチャハンドル（TextureManager::Load の戻り）
+	// -----------------------------
+	// Block Textures / Toggle
+	// -----------------------------
 	uint32_t blockTexRed_ = 0;
 	uint32_t blockTexBlue_ = 0;
+	uint32_t blockTexGrass_ = 0;
 	KamataEngine::Model* cubeModel_ = nullptr;
-	uint32_t blockTexGrass_ = 0; 
-	// ブロック全体の色状態（true = 赤, false = 青）
-	bool blocksAreRed_ = true;
 
-	uint32_t seGameClearHandle_ = 0;
-	int seGameClearId_ = -1;
-	bool seGameClearPlayed_ = false;
+	bool blocksAreRed_ = true; // true=赤 / false=青
 
-	uint32_t seGameOverHandle_ = 0;
-	int seGameOverId_ = -1;
-	bool seGameOverPlayed_ = false;
-
-	uint32_t seBlockHandle_ = 0;
-	
-	uint32_t seDeathHandle_ = 0; // death.mp3
-	bool playedDeathSE_ = false;
-
-	 uint32_t bgmGameHandle_ = 0; // ゲームBGM
-	uint32_t bgmGameId_ = 0;    
-	bool bgmPlaying_ = false;
-
+	// -----------------------------
+	// UI Textures
+	// -----------------------------
 	uint32_t gameOverTex_ = 0;
 	uint32_t gameClearTex_ = 0;
-	
-	public:
 
+	// -----------------------------
+	// HP Bar UI
+	// -----------------------------
+	int prevHp_ = 0;
+	Sprite* hpBar_ = nullptr;
+	Vector2 hpBarPos_ = {40.0f, 620.0f};
+	Vector2 hpBarMaxSize_ = {240.0f, 16.0f};
+	uint32_t hpBarTex_ = 0;
+
+	// 演出
+	float hpShakeTimer_ = 0.0f;
+	float hpFlashTimer_ = 0.0f;
+
+	float hpDamageDelay_ = 0.0f;
+	float hpDamageRate_ = 1.0f;
+	float hpRate_ = 1.0f;
+
+	// 枠・緑・赤残像
+	Sprite* hpFrame_ = nullptr;
+	Sprite* hpFill_ = nullptr;
+	Sprite* hpDamage_ = nullptr;
+
+	// -----------------------------
+	// Goal
+	// -----------------------------
+	bool hasGoal_ = false;
+	KamataEngine::Model* goalModel_ = nullptr;
+	KamataEngine::WorldTransform goalWT_;
+	uint32_t goalTex_ = 0;
+
+public:
+	// -----------------------------
+	// Lifecycle
+	// -----------------------------
 	void Initialize();
-
 	void Update();
-
 	void Draw();
-
 	~GameScene();
 
+	// -----------------------------
+	// Helpers
+	// -----------------------------
 	void GenerateBlocks();
-
-	// 全ての当たり判定を行う
 	void CheckAllCollisions();
-
 	void UpdatePlay(float deltaTime);
-
 	void UpdateDeath();
 
 	void ChangePhase();
 	bool IsFinished() const { return finished_; }
 
-
+	// -----------------------------
+	// Enemy Spawns
+	// -----------------------------
+	Enemy* SpawnEnemyGrid(uint32_t gx, uint32_t gy, float yOffset);
+	Enemy* SpawnEnemyAt(const Vector3& pos);
+	Enemy* SpawnEnemyGridByBlocks(uint32_t gx, uint32_t gy, int yBlocksOffset = 0);
 };

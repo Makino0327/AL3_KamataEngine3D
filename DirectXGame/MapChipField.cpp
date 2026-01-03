@@ -10,6 +10,7 @@ std::unordered_map<std::string, MapChipType> mapChipTable = {
     {"1", MapChipType::kBlock},
     {"2", MapChipType::kBlockRed }, // 追加
     {"3", MapChipType::kBlockBlue}, // 追加
+    {"4", MapChipType::kGoal     },
 };
 }
 

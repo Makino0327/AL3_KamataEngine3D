@@ -1,34 +1,43 @@
 #pragma once
-#define NOMINMAX // これを入れると Windows の max マクロが無効になる
+
+#define NOMINMAX
 #include <Windows.h>
-#include <algorithm> // std::max が有効になる
-#include "KamataEngine.h"
+
+#include <algorithm>
 #include <cassert>
-#include <numbers>
 #include <cmath>
-#include "Vector.h"
+#include <cstdint>
+#include <numbers>
+
+#include "KamataEngine.h"
 #include "MapChipField.h"
+#include "Vector.h"
 
+// ヘッダで using namespace は事故の元なのでやらない
+// using namespace KamataEngine; ←削除
 
-using namespace KamataEngine;
-static inline const float kAcceleration = 0.01f; // プレイヤーの加速度
-static inline const float kAttenuation = 0.1f; // プレイヤーの減衰率f; 
+// =========================
+// 定数（今のまま global でOK）
+// =========================
+static inline const float kAcceleration = 0.01f;
+static inline const float kAttenuation = 0.1f;
 static inline const float kLimitRunSpeed = 0.3f;
 static inline const float kTimeTurn = 0.3f;
-static inline const float kGravityAcceleration = 0.015f; // 重力加速度
-static inline const float kLimitFallSpeed = 0.5f;       // 限界落下速度
-static inline const float kJumpAcceleration = 0.4f;     // ジャンプ加速度
+static inline const float kGravityAcceleration = 0.015f;
+static inline const float kLimitFallSpeed = 0.5f;
+static inline const float kJumpAcceleration = 0.4f;
 static inline const float kWidth = 1.99f;
-static inline const float kHeight = 1.99f; // プレイヤーの高さ
-static inline const float kAttenuationLanding = 0.2f; // 例えば20%摩擦
-static inline const float kGroundingOffsetY = -0.05f; // 微小なマイナス値
-const float modelHeight = 1.0f;                       // 壁接触時の減衰率（例: 20% 減衰）
+static inline const float kHeight = 1.99f;
+static inline const float kAttenuationLanding = 0.2f;
+static inline const float kGroundingOffsetY = -0.05f;
 static inline const float kAttenuationWall = 0.2f;
 
+static inline const float modelHeight = 1.0f;
 
 class Enemy;
-enum class LRDirection
-{
+class MapChipField;
+
+enum class LRDirection {
 	kRight,
 	kLeft,
 };
@@ -41,11 +50,10 @@ struct CollisionInfo {
 	bool isHitBottom = false;
 	bool isHitLeft = false;
 	bool isHitRight = false;
-	Vector3 move; // 最終的な移動量
+	KamataEngine::Vector3 move{}; // 最終的な移動量
 };
 
-enum Corner
-{
+enum Corner {
 	kRightBottom,
 	kLeftBottom,
 	kRightTop,
@@ -54,86 +62,96 @@ enum Corner
 	kNumCorner
 };
 
-class MapChipField;
-
 class Player {
 private:
-	KamataEngine::WorldTransform worldTransform_;
+	KamataEngine::WorldTransform worldTransform_{};
 	KamataEngine::Model* model_ = nullptr;
 	KamataEngine::Camera* camera_ = nullptr;
 	uint32_t textureHandle_ = 0;
-	Vector3 velocity_ = {};
+
+	KamataEngine::Vector3 velocity_{};
+
 	bool onGround_ = true;
-	bool landing = false;
-	float turnFirstRotationY_ = 0.0f; // 初回の回転角度
-	float turnTimer_ = 0.0f;          // 回転タイマー
+	bool landing_ = false;
+
+	float turnFirstRotationY_ = 0.0f;
+	float turnTimer_ = 0.0f;
+
+	// ヘッダ内定義OK（クラス内関数は暗黙inline）
 	float EaseInOut(float t) { return t < 0.5f ? 2.0f * t * t : -1.0f + (4.0f - 2.0f * t) * t; }
-	// マップチップによるフィールド
+
 	MapChipField* mapChipField_ = nullptr;
 
-	public:
-	const Vector3& GetPosition() const { return worldTransform_.translation_; }
-	const Vector3& GetVelocity() const { return velocity_; }
-
-	LRDirection lrDirection_ = LRDirection::kRight;
+public:
+	// ========= Getter =========
+	const KamataEngine::Vector3& GetPosition() const { return worldTransform_.translation_; }
+	const KamataEngine::Vector3& GetVelocity() const { return velocity_; }
 
 	const KamataEngine::WorldTransform& GetWorldTransform() const { return worldTransform_; }
+	KamataEngine::WorldTransform& GetWorldTransform() { return worldTransform_; }
+
+	// ========= State =========
+	LRDirection lrDirection_ = LRDirection::kRight;
 
 	bool isDead_ = false;
-	float modelYOffset_ = 1.0f; // モデル中心 → 足元 までの補正値
+	float modelYOffset_ = 1.0f;
 
-	
 	BehaviorState behaviorState_ = BehaviorState::kRoot;
 
+	// ========= Attack =========
 	float attackTimer_ = 0.0f;
-	static constexpr float kAttackDuration_ = 0.30f; // 攻撃の持続秒
+	static constexpr float kAttackDuration_ = 0.30f;
+	float attackCooldownTimer_ = 0.0f;
+	static constexpr float kAttackCooldown_ = 0.60f;
 	float attackScaleTimer_ = 0.0f;
-	const float kAttackScaleDuration = 0.2f; // 縮む時間（秒）
-	                                         // --- Double Jump ---
-	int jumpCount_ = 0;                      // 実行済みジャンプ回数
-	int maxJumps_ = 2;                       // 上限（2で二段ジャンプ）
+	static constexpr float kAttackScaleDuration_ = 0.2f;
+	float attackDashSpeed_ = 0.35f; // 横ダッシュ量（今の0.4より少し弱め）
+	bool attackHitDone_ = false;    // 1回だけ当てたい場合
 
-	// --- Spin on 2nd jump ---
+	// ========= Jump =========
+	int jumpCount_ = 0;
+	int maxJumps_ = 2;
+
 	bool spinActive_ = false;
 	float spinTimer_ = 0.0f;
-	float spinDuration_ = 0.35f; // 一回転にかける時間（好みで調整）
-	float spinStartX_ = 0.0f;    // 開始時のX回転角（戻し用）
+	float spinDuration_ = 0.35f;
+	float spinStartX_ = 0.0f;
 
-	 bool firstJumpEvent_ = false; 
+	bool firstJumpEvent_ = false;
+	bool secondJumpEvent_ = false;
 
+	// ========= Switch blocks =========
 	bool blocksAreRed_ = true;
-	 bool secondJumpEvent_ = false;
 
-	 // --- 壁キック用チューニング ---
-	 static constexpr float kWallSlideMaxFall = -0.18f; // 壁すべり中の最大落下速度(下はマイナス)
-	                                                    // Player.h
-	 static constexpr float kWallJumpVelX = 0.35f;      // ← 0.50f から弱め
-	 static constexpr float kWallJumpVelY = 0.42f;      // ← 0.65f から弱め
+	// ★これを追加：外部bool参照をしたい時用
+	const bool* blocksAreRedPtr_ = nullptr;
 
+	// ========= Wall =========
+	static constexpr float kWallSlideMaxFall = -0.18f;
+	static constexpr float kWallJumpVelX = 0.35f;
+	static constexpr float kWallJumpVelY = 0.42f;
 
-	 // 状態
-	 bool wallSliding_ = false; // 壁すべり中？
-	 int wallDir_ = 0;          // -1=左壁 / +1=右壁 / 0=なし
+	bool wallSliding_ = false;
+	int wallDir_ = 0;
 
-	 // 「前フレームで壁に触れてたか」保持（同フレームでのジャンプ受付のため）
-	 bool prevHitLeft_ = false;
-	 bool prevHitRight_ = false;
+	bool prevHitLeft_ = false;
+	bool prevHitRight_ = false;
 
+	// ========= HP / Damage =========
+	static constexpr int kMaxHP_ = 100;
+	int hp_ = kMaxHP_;
 
- public:
-	/// <summary>
-	/// 初期化
-	/// </summary>
-	void Initialize(KamataEngine::Model* model,KamataEngine::Camera* camera,const Vector3& position);
+	float damageCooldownTimer_ = 0.0f;
+	static constexpr float kDamageInterval_ = 0.5f;
+	static constexpr int kContactDamage_ = 10;
 
-	/// <summary>
-	/// 更新
-	/// </summary>
+	float blinkTimer_ = 0.0f;
+	static constexpr float kBlinkInterval_ = 0.08f;
+
+public:
+	// ========= Core =========
+	void Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const KamataEngine::Vector3& position);
 	void Update(float deltaTime);
-
-	/// <summary>
-	/// 描画
-	/// </summary>
 	void Draw();
 
 	void SetMapChipField(MapChipField* mapChipField) {
@@ -142,46 +160,50 @@ private:
 	}
 
 	bool IsOnGround() const { return onGround_; }
+	int GetHP() const { return hp_; }
+	int GetMaxHP() const { return kMaxHP_; }
+	bool IsDead() const { return isDead_; }
+	void KillByFall(); // 奈落即死
 
-	
+	bool IsAttacking() const { return behaviorState_ == BehaviorState::kAttack; }
+	AABB GetAttackAABB() const; // 攻撃判定用
 
+	// ========= Move / Collision =========
 	void InputMove();
 
 	void CheckCollisionMap(CollisionInfo& info);
-
 	void CheckCollisionMapTop(CollisionInfo& info);
 	void CheckCollisionMapBottom(CollisionInfo& info);
 	void CheckCollisionMapLeft(CollisionInfo& info);
 	void CheckCollisionMapRight(CollisionInfo& info);
 
-	Vector3 CornerPosition(const Vector3& center, Corner corner);
+	KamataEngine::Vector3 CornerPosition(const KamataEngine::Vector3& center, Corner corner);
 	void ApplyCollisionResult(const CollisionInfo& info);
 	void CheckHitCeiling(const CollisionInfo& info);
 	void ChangeGroundState(const CollisionInfo& info);
-	// 壁に接触している場合の処理
 	void ProcessWallCollision(const CollisionInfo& info);
-	Vector3 GetWorldPosition();
-	// AABBを取得
-	AABB GetAABB();
+
+	KamataEngine::Vector3 GetWorldPosition();
+	AABB GetAABB() const;
+
 	void OnCollision();
-	bool IsDead() const { return isDead_; }
-	WorldTransform& GetWorldTransform() { return worldTransform_; }
 
+	// ========= Behavior =========
 	void BehaviorRootUpdate();
-
-	// 攻撃行動更新
 	void BehaviorAttackUpdate();
 
-	void SetBlocksAreRedPtr(const bool* p) { blocksAreRed_ = p; }
+	// ========= Switch =========
+	// ★型エラー修正：bool* を保持する先を分ける
+	void SetBlocksAreRedPtr(const bool* p) { blocksAreRedPtr_ = p; }
+	void SetBlocksAreRed(bool v) { blocksAreRed_ = v; }
 
-    inline bool IsSolidForSwitch(MapChipType t, bool blocksAreRed);
+	// ★重要：inline を外す（cppに実装してもリンク事故が起きにくい）
+	bool IsSolidForSwitch(MapChipType t, bool blocksAreRed);
+	MapChipType GetTypeSafe(int x, int y);
 
-	inline MapChipType GetTypeSafe(int x, int y);
-
-	  bool ConsumeFirstJumpEvent();
-
-	   void SetBlocksAreRed(bool v) { blocksAreRed_ = v; } 
-
+	bool ConsumeFirstJumpEvent();
 	bool ConsumeSecondJumpEvent();
 
+	// blocksAreRed の参照元を統一（cppでもこれを使うと安全）
+	bool GetBlocksAreRed() const { return (blocksAreRedPtr_ != nullptr) ? *blocksAreRedPtr_ : blocksAreRed_; }
 };

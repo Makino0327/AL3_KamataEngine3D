@@ -1,50 +1,65 @@
 #include "Enemy.h"
+#include <algorithm>
+#include <numbers>
+
+using namespace KamataEngine;
 
 void Enemy::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const Vector3& position) {
 	assert(model);
 	model_ = model;
 	camera_ = camera;
 
-	// ワールドトランスフォームの初期化
 	worldTransform_.Initialize();
-	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f}; // スケールを1に設定
+	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
 	worldTransform_.translation_ = position;
-	worldTransform_.translation_.y = position.y-1.0f;
-	// 左向きにする（自キャラが右向きなら）
 	worldTransform_.rotation_.y = -std::numbers::pi_v<float> / 2.0f;
 
-
+	// ★これが無いと出ない
+	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
 	worldTransform_.TransferMatrix();
 
-	velocity_ = {-kWalkSpeed, 0.0f, 0.0f};
+	velocity_ = {0.0f, 0.0f, 0.0f};
 	walkTimer_ = 0.0f;
 }
 
 void Enemy::Update() {
-	walkTimer_ += 1.0f / 60.0f; // 1フレームあたり1/60秒進める
-	// 首振りアニメーション
-	// 例えば 2倍速で揺らしたい場合
-	float frequency = 4.0f; // 倍率（1.0fが標準、2.0fで2倍速）
-	float param = std::sin(walkTimer_ * frequency);
-	float t = (param + 1.0f) / 2.0f;
-	worldTransform_.rotation_.z = std::lerp(kWalkMotionAngleStart, kWalkMotionAngleEnd, t);
 
-	 
-	// 必要に応じて位置やロジックを更新する処理を書く
-	worldTransform_.translation_.x += velocity_.x;
-	// 変換行列の更新（SRT順）
+	if (isDying_) {
+		const float dt = 1.0f / 60.0f;
+
+		// ★重力で放物線
+		deathVel_.y += deathGravity_ * dt;
+
+		// ★位置更新
+		worldTransform_.translation_.x += deathVel_.x * dt;
+		worldTransform_.translation_.y += deathVel_.y * dt;
+		worldTransform_.translation_.z += deathVel_.z * dt;
+		// こてっと：回転は控えめ（無くしてもOK）
+		worldTransform_.rotation_.z += deathRotSpeed_ * dt;
+
+		// 画面外で消す
+		if (worldTransform_.translation_.y < deathEndY_) {
+			isDead_ = true;
+			isDying_ = false;
+		}
+
+		worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
+		worldTransform_.TransferMatrix();
+		return;
+	}
+
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, worldTransform_.translation_);
-
-	// 定数バッファなどに転送（描画のため）
 	worldTransform_.TransferMatrix();
 }
 
-void Enemy::Draw() {
-	if (model_ && camera_) {
-		model_->Draw(worldTransform_, *camera_, textureHandle_);
-	}
-}
 
+
+void Enemy::Draw() {
+	if (isDead_) {
+		return;
+	}
+	model_->Draw(worldTransform_, *camera_, textureHandle_);
+}
 
 // Enemy.cpp
 void Enemy::SetTexture(uint32_t textureHandle) { textureHandle_ = textureHandle; }
@@ -73,4 +88,42 @@ void Enemy::OnCollision(const Player* player) {
 	(void)player; // 引数未使用警告を回避するためのキャスト
 
 	// 今は何も処理なし（後でHP減らす処理などをここに追加）
+}
+
+void Enemy::OnHit(int damage, const Vector3& hitterPos) {
+	(void)damage;
+	StartDeath(hitterPos);
+}
+
+
+void Enemy::StartDeath(const Vector3& hitterPos) {
+	if (isDead_ || isDying_) {
+		return;
+	}
+
+	isDying_ = true;
+
+	// ひっくり返る（こてっ感）
+	worldTransform_.rotation_.z = std::numbers::pi_v<float>;
+
+	// ---- 弧の初速 ----
+	// 上に少し跳ねる
+	const float up = 8.5f; // ここ上げると弧が大きくなる
+	// 横に少し飛ぶ
+	const float side = 5.0f; // ここ上げると横に飛ぶ
+
+	// hitterPos(=プレイヤー位置) が左なら右へ、右なら左へ
+	float dir = (hitterPos.x < worldTransform_.translation_.x) ? +1.0f : -1.0f;
+
+	deathVel_.x = side * dir;
+	deathVel_.y = up;
+	deathVel_.z = 0.0f;
+
+	// ===== 追加：Z方向だけ =====
+	const float zPush = -2.25f; // ← カメラ側に寄せる量（調整用）
+	deathVel_.z = zPush;
+
+
+	// 通常の移動は止める
+	velocity_ = {0, 0, 0};
 }

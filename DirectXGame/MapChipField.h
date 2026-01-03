@@ -10,6 +10,7 @@ enum class MapChipType {
 	kBlock = 1,     // 普通のブロック (CSV 1)
 	kBlockRed = 2,  // 赤ブロック (CSV 2)
 	kBlockBlue = 3, // 青ブロック (CSV 3)
+	kGoal,
 };
 
 struct MapChipData
