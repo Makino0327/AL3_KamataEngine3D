@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <numbers>
+#include <unordered_set> 
 
 #include "KamataEngine.h"
 #include "MapChipField.h"
@@ -154,6 +155,8 @@ public:
 	void Update(float deltaTime);
 	void Draw();
 
+	std::vector<IndexSet> ConsumeBrokenChargeBlocks();
+
 	void SetMapChipField(MapChipField* mapChipField) {
 		assert(mapChipField != nullptr);
 		mapChipField_ = mapChipField;
@@ -198,7 +201,7 @@ public:
 	void SetBlocksAreRed(bool v) { blocksAreRed_ = v; }
 
 	// ★重要：inline を外す（cppに実装してもリンク事故が起きにくい）
-	bool IsSolidForSwitch(MapChipType t, bool blocksAreRed);
+	static bool IsSolidForSwitch(MapChipType t, bool blocksAreRed);
 	MapChipType GetTypeSafe(int x, int y);
 
 	bool ConsumeFirstJumpEvent();
@@ -206,4 +209,100 @@ public:
 
 	// blocksAreRed の参照元を統一（cppでもこれを使うと安全）
 	bool GetBlocksAreRed() const { return (blocksAreRedPtr_ != nullptr) ? *blocksAreRedPtr_ : blocksAreRed_; }
+
+	// ========= Combat / Damage =========
+	// 追加：弾モデルをセット（GameSceneから渡す）
+	void SetBulletModel(KamataEngine::Model* model) { bulletModel_ = model; }
+
+	// 追加：弾更新・描画
+	void UpdateBullets(float dt, const std::list<Enemy*>& enemies);
+	void DrawBullets();
+
+	private:
+	struct Bullet {
+		bool alive = false;
+		float life = 0.0f;
+		KamataEngine::WorldTransform wt{};
+		KamataEngine::Vector3 vel{};
+
+		 // ★追加：チャージ弾の貫通用
+		bool pierce = false;               // 貫通するか
+		int pierceLeft = 0;                // 残り貫通回数
+		std::unordered_set<Enemy*> hitSet; // この弾が既に当てた敵（多段ヒット防止）
+	};
+
+	// 追加：弾の実体
+	std::list<Bullet> bullets_;
+	KamataEngine::Model* bulletModel_ = nullptr;
+
+	// 追加：弾パラメータ
+	float bulletCooldown_ = 0.0f;
+	static constexpr float kBulletCool = 0.20f;  // 連射間隔（秒）
+	static constexpr float kBulletLife = 1.5f;   // 寿命（秒）
+	static constexpr float kBulletSpeed = 18.0f; // 速度
+	static constexpr float kBulletHalf = 0.35f;  // AABB半径（当たり判定の大きさ）
+
+	// ===== Charge Shot =====
+	bool isCharging_ = false;
+	float chargeTime_ = 0.0f;
+
+	// しきい値（ここは好みで調整）
+	static constexpr float kChargeThreshold_ = 0.45f; // これ以上でチャージ弾
+	static constexpr float kChargeMax_ = 1.20f;       // 最大溜め
+
+	// 演出：チャージ中の軽い膨張
+	float chargePulse_ = 0.0f; // 0..1
+
+	// ===== Charge VFX =====
+	bool chargeReady_ = false;      // しきい値到達済み
+	float chargeReadyFlash_ = 0.0f; // 0..1（点滅強度）
+	float chargePopTimer_ = 0.0f;   // 完了時の「ドン」演出
+	float shootRecoilTimer_ = 0.0f; // 発射時の反動
+	static constexpr int kChargePierceCount_ = 3; // チャージ弾は最大3体貫通（好きに変更）
+
+
+	static constexpr float kChargePopTime_ = 0.18f;   // ドンの長さ
+	static constexpr float kShootRecoilTime_ = 0.10f; // 反動の長さ
+
+
+	// 発射共通
+	void SpawnBulletWithPower(float power01); // 0=通常 1=チャージ
+
+	bool GetBulletHitMapInfo(const Bullet& b, IndexSet& outIdx, MapChipType& outType) const;
+
+private:
+	void SpawnBullet() {
+		if (!bulletModel_) {
+			return;
+		}
+
+		bullets_.emplace_back(); // ★ここが重要（コピーしない）
+		Bullet& b = bullets_.back();
+
+		b.alive = true;
+		b.life = kBulletLife;
+		b.wt.Initialize();
+
+		Vector3 p = worldTransform_.translation_;
+		float dir = (lrDirection_ == LRDirection::kRight) ? +1.0f : -1.0f;
+
+		p.x += dir * (kWidth * 0.6f);
+		p.y += 0.2f;
+
+		b.wt.translation_ = p;
+		b.wt.scale_ = {0.35f, 0.35f, 0.35f};
+		b.wt.rotation_ = {0, 0, 0};
+
+		b.vel = {dir * kBulletSpeed, 0.0f, 0.0f};
+
+		b.wt.matWorld_ = MakeAffineMatrix(b.wt.scale_, b.wt.rotation_, b.wt.translation_);
+		b.wt.TransferMatrix();
+	}
+	bool BulletHitMap(const Bullet& b) const;
+
+	static bool IntersectsAABB(const AABB& a, const AABB& b) {
+		return (a.min.x <= b.max.x && a.max.x >= b.min.x) && (a.min.y <= b.max.y && a.max.y >= b.min.y) && (a.min.z <= b.max.z && a.max.z >= b.min.z);
+	}
+	
+	std::vector<IndexSet> brokenChargeBlocks_;
 };

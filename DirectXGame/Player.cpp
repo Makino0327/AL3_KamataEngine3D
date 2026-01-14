@@ -27,7 +27,7 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
 
 	// とりあえず仮（あなたの元コードを尊重）
-	textureHandle_ = TextureManager::Load("./Resources/GameOver/GameOver.png");
+	textureHandle_ = TextureManager::Load("./Resources/player.png");
 
 	onGround_ = false;
 
@@ -57,6 +57,8 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	corrected.y -= modelYOffset_;
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, corrected);
 	worldTransform_.TransferMatrix();
+
+	
 }
 
 void Player::Update(float deltaTime) {
@@ -67,6 +69,69 @@ void Player::Update(float deltaTime) {
 	if (damageCooldownTimer_ > 0.0f) {
 		damageCooldownTimer_ = std::max(0.0f, damageCooldownTimer_ - deltaTime);
 	}
+	// 弾クールタイム
+	if (bulletCooldown_ > 0.0f) {
+		bulletCooldown_ = std::max(0.0f, bulletCooldown_ - deltaTime);
+	}
+
+	// --------------------
+	// E：短押し=通常 / 長押し=チャージ（離した瞬間に発射）
+	// --------------------
+	const bool eDown = Input::GetInstance()->PushKey(DIK_E);
+	const bool eTrigger = Input::GetInstance()->TriggerKey(DIK_E);
+
+	// Release（離した瞬間）を自前で作る
+	static bool prevEDown = false;
+	const bool eRelease = (!eDown && prevEDown);
+	prevEDown = eDown;
+
+	// 押し始め：チャージ開始
+	if (eTrigger && bulletCooldown_ <= 0.0f) {
+		isCharging_ = true;
+		chargeTime_ = 0.0f;
+		chargePulse_ = 0.0f;
+	}
+
+	// 押してる間：溜める
+	if (isCharging_ && eDown) {
+		chargeTime_ += deltaTime;
+		if (chargeTime_ > kChargeMax_)
+			chargeTime_ = kChargeMax_;
+		chargePulse_ = std::clamp(chargeTime_ / kChargeMax_, 0.0f, 1.0f);
+
+		// ★しきい値を超えた瞬間に「ドン！」（1回だけ）
+		if (!chargeReady_ && chargeTime_ >= kChargeThreshold_) {
+			chargeReady_ = true;
+			chargePopTimer_ = kChargePopTime_;
+		}
+
+		// ★点滅（溜めるほど強い）
+		chargeReadyFlash_ += deltaTime * (6.0f + 10.0f * chargePulse_);
+		if (chargeReadyFlash_ > 1000.0f)
+			chargeReadyFlash_ = 0.0f;
+	}
+
+
+	// 離した瞬間：発射
+	if (isCharging_ && eRelease) {
+		const bool isChargeShot = (chargeTime_ >= kChargeThreshold_);
+		float power01 = isChargeShot ? 1.0f : 0.0f;
+
+		SpawnBulletWithPower(power01);
+		bulletCooldown_ = kBulletCool;
+
+		// ★発射反動
+		shootRecoilTimer_ = kShootRecoilTime_;
+
+		// リセット
+		isCharging_ = false;
+		chargeTime_ = 0.0f;
+		chargePulse_ = 0.0f;
+		chargeReady_ = false;
+		chargeReadyFlash_ = 0.0f;
+		chargePopTimer_ = 0.0f;
+	}
+
 
 	// 無敵点滅タイマー
 	if (damageCooldownTimer_ > 0.0f) {
@@ -76,7 +141,7 @@ void Player::Update(float deltaTime) {
 	}
 
 	// 攻撃開始（Root中 & E押下 & クール明け）
-	if (behaviorState_ == BehaviorState::kRoot && Input::GetInstance()->TriggerKey(DIK_E) && attackCooldownTimer_ <= 0.0f) {
+	if (behaviorState_ == BehaviorState::kRoot && Input::GetInstance()->TriggerKey(DIK_SPACE) && attackCooldownTimer_ <= 0.0f) {
 
 		behaviorState_ = BehaviorState::kAttack;
 		attackTimer_ = 0.0f;
@@ -144,14 +209,11 @@ void Player::InputMove() {
 	if (left) {
 		velocity_.x -= accel;
 		lrDirection_ = LRDirection::kLeft;
-		worldTransform_.rotation_.y = -std::numbers::pi_v<float> / 2.0f;
 	}
 	if (right) {
 		velocity_.x += accel;
 		lrDirection_ = LRDirection::kRight;
-		worldTransform_.rotation_.y = std::numbers::pi_v<float> / 2.0f;
 	}
-
 	// 入力なし → 摩擦
 	if (!left && !right) {
 		velocity_.x *= (1.0f - friction);
@@ -499,12 +561,95 @@ void Player::BehaviorRootUpdate() {
 	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
 	attackScaleTimer_ = 0.0f;
 
+	// ★追加：攻撃の前のめり等を確実に戻す
+	worldTransform_.rotation_.x = 0.0f;
+	worldTransform_.rotation_.z = 0.0f; 
+
+	// =======================
+	// ★チャージ演出（分かりやすい版）
+	// =======================
+	if (isCharging_) {
+		// ぷるぷる（溜めるほど激しい）
+		float t = chargePulse_; // 0..1
+		float wobble = std::sin(chargeTime_ * 24.0f) * (0.03f + 0.07f * t);
+
+		// 基本の膨らみ：溜めるほど大きく
+		float base = 1.0f + 0.10f * t;
+
+		// チャージ中は「縦に圧縮→横に膨張」で “溜めてる感”
+		worldTransform_.scale_.x *= (base + wobble);
+		worldTransform_.scale_.y *= (1.0f - 0.06f * t - wobble * 0.5f);
+
+		// しきい値到達後は点滅みたいに “鼓動” を強める（スケールで表現）
+		if (chargeReady_) {
+			float beat = (std::sin(chargeReadyFlash_ * 6.0f) * 0.5f + 0.5f); // 0..1
+			float bump = 1.0f + 0.06f * beat;
+			worldTransform_.scale_.x *= bump;
+			worldTransform_.scale_.y *= bump;
+		}
+	}
+
+	// 完了時の「ドン！」（1回だけ大きく）
+	if (chargePopTimer_ > 0.0f) {
+		chargePopTimer_ -= (1.0f / 60.0f);
+		float u = std::clamp(chargePopTimer_ / kChargePopTime_, 0.0f, 1.0f); // 1→0
+		// 1→0 を使って、最初が一番大きい
+		float pop = 1.0f + 0.35f * u;
+		worldTransform_.scale_.x *= pop;
+		worldTransform_.scale_.y *= pop;
+	}
+
+	// 発射反動：一瞬だけ縮む（撃った感が出る）
+	if (shootRecoilTimer_ > 0.0f) {
+		shootRecoilTimer_ -= (1.0f / 60.0f);
+		float u = std::clamp(shootRecoilTimer_ / kShootRecoilTime_, 0.0f, 1.0f); // 1→0
+		float recoil = 1.0f - 0.25f * u;
+		worldTransform_.scale_.x *= recoil;
+		worldTransform_.scale_.y *= recoil;
+	}
+
+
 	// 入力による移動
 	InputMove();
 
+	// =======================
+	// 振り返りイージング
+	// =======================
+	const float targetY = (lrDirection_ == LRDirection::kRight) ? +std::numbers::pi_v<float> / 2.0f : -std::numbers::pi_v<float> / 2.0f;
+
+	// 「まだ目標と違う」なら回し始める
+	if (std::fabs(worldTransform_.rotation_.y - targetY) > 0.0001f) {
+
+		// 初回（または目標が変わった瞬間）に開始角を保存
+		if (turnTimer_ <= 0.0f || turnTimer_ >= kTimeTurn) {
+			turnFirstRotationY_ = worldTransform_.rotation_.y;
+			turnTimer_ = 0.0f;
+		}
+
+		// タイマー進行（deltaTimeが取れるなら deltaTime を使う）
+		// 今の君のコードは 1/60 を多用してるので、それに合わせるならこれでOK
+		turnTimer_ += 1.0f / 60.0f;
+
+		float t = std::clamp(turnTimer_ / kTimeTurn, 0.0f, 1.0f);
+		float e = EaseInOut(t);
+
+		// イージング補間
+		worldTransform_.rotation_.y = turnFirstRotationY_ + (targetY - turnFirstRotationY_) * e;
+
+		// 完了したら固定
+		if (t >= 1.0f) {
+			worldTransform_.rotation_.y = targetY;
+			turnTimer_ = kTimeTurn; // 終了状態にしておく
+		}
+	} else {
+		// もう向いてるならタイマーは終端に
+		turnTimer_ = kTimeTurn;
+	}
+
+
 	const bool left = Input::GetInstance()->PushKey(DIK_A);
 	const bool right = Input::GetInstance()->PushKey(DIK_D);
-	const bool jumpPressed = Input::GetInstance()->TriggerKey(DIK_SPACE);
+	const bool jumpPressed = Input::GetInstance()->TriggerKey(DIK_W);
 
 	// 壁ジャンプ先行判定（前フレーム接触情報）
 	bool wantWallJump = false;
@@ -719,6 +864,8 @@ bool Player::IsSolidForSwitch(MapChipType t, bool blocksAreRed) {
 		return blocksAreRed;
 	case MapChipType::kBlockBlue:
 		return !blocksAreRed;
+	case MapChipType::kChargeBreakable: // ★追加：普段は壁
+		return true;
 	default:
 		return false;
 	}
@@ -756,4 +903,240 @@ AABB Player::GetAttackAABB() const {
 
 	// 縦はちょい狭めてもいい（好み）
 	return body;
+}
+
+
+bool Player::BulletHitMap(const Bullet& b) const {
+	if (!mapChipField_)
+		return false;
+
+	static constexpr float kBulletBaseScale = 0.35f;
+
+	float half = kBulletHalf * (b.wt.scale_.x / kBulletBaseScale);
+
+	// 進行方向（xだけ動いてる前提）
+	float dir = (b.vel.x >= 0.0f) ? +1.0f : -1.0f;
+
+	// 先端ポイント
+	Vector3 tip = b.wt.translation_;
+	tip.x += dir * half;
+
+	// ついでに上下も少し見る（太い弾の抜け防止）
+	Vector3 tipUp = tip;
+	tipUp.y += half * 0.6f;
+	Vector3 tipDn = tip;
+	tipDn.y -= half * 0.6f;
+
+	auto isSolidAt = [&](const Vector3& pos) {
+		IndexSet idx = mapChipField_->GetMapChipIndexByPosition(pos);
+		MapChipType t = mapChipField_->GetMapChipTypeByIndex(idx.xIndex, idx.yIndex);
+		return IsSolidForSwitch(t, blocksAreRed_);
+	};
+
+	return isSolidAt(tip) || isSolidAt(tipUp) || isSolidAt(tipDn);
+}
+
+
+void Player::UpdateBullets(float dt, const std::list<Enemy*>& enemies) {
+
+	for (auto it = bullets_.begin(); it != bullets_.end();) {
+		Bullet& b = *it;
+
+		b.life -= dt;
+		if (b.life <= 0.0f) {
+			it = bullets_.erase(it);
+			continue;
+		}
+
+		// 移動
+		b.wt.translation_.x += b.vel.x * dt;
+
+		// ----------------------------
+		// ① マップヒット判定（Indexも取る）
+		// ----------------------------
+		IndexSet hitIdx{};
+		MapChipType hitType = MapChipType::kBlank;
+
+		if (GetBulletHitMapInfo(b, hitIdx, hitType)) {
+
+			// ★チャージ弾 + 5番なら「壊して貫通（回数消費）」
+			if (b.pierce && hitType == MapChipType::kChargeBreakable) {
+
+				// ブロック消す
+				mapChipField_->SetMapChipTypeByIndex(hitIdx.xIndex, hitIdx.yIndex, MapChipType::kBlank);
+
+				// 貫通回数を減らす（敵でもブロックでも共通で減る）
+				b.pierceLeft--;
+				if (b.pierceLeft <= 0) {
+					it = bullets_.erase(it);
+					continue;
+				}
+
+				// まだ貫通残ってるので弾は残す
+			} else {
+				// それ以外の壁・ブロックは普通に弾が消える
+				it = bullets_.erase(it);
+				continue;
+			}
+		}
+
+		// ----------------------------
+		// ② 敵ヒット判定（貫通対応）
+		// ----------------------------
+		static constexpr float kBulletBaseScale = 0.35f;
+		float half = kBulletHalf * (b.wt.scale_.x / kBulletBaseScale);
+
+		AABB ba;
+		Vector3 c = b.wt.translation_;
+		ba.min = {c.x - half, c.y - half, c.z - half};
+		ba.max = {c.x + half, c.y + half, c.z + half};
+
+		bool erased = false;
+
+		for (Enemy* e : enemies) {
+			if (!e)
+				continue;
+			if (e->IsDead() || e->IsDying())
+				continue;
+
+			if (!IntersectsAABB(ba, e->GetAABB()))
+				continue;
+
+			// 既に同じ敵に当ててたらスキップ（貫通弾で多段ヒット防止）
+			if (b.pierce) {
+				if (b.hitSet.contains(e)) {
+					continue;
+				}
+				b.hitSet.insert(e);
+			}
+
+			e->OnHit(1, worldTransform_.translation_);
+
+			if (b.pierce) {
+				b.pierceLeft--;
+				if (b.pierceLeft <= 0) {
+					it = bullets_.erase(it);
+					erased = true;
+				}
+				// まだ残ってるなら弾は残して次へ
+			} else {
+				it = bullets_.erase(it);
+				erased = true;
+			}
+			break;
+		}
+
+		if (erased) {
+			continue;
+		}
+
+		++it;
+	}
+}
+
+
+// Player.cpp
+std::vector<IndexSet> Player::ConsumeBrokenChargeBlocks() {
+	std::vector<IndexSet> out;
+	out.swap(brokenChargeBlocks_);
+	return out;
+}
+
+void Player::DrawBullets() {
+	if (!bulletModel_) {
+		return;
+	}
+
+	for (auto& b : bullets_) {
+		if (!b.alive)
+			continue;
+
+		b.wt.matWorld_ = MakeAffineMatrix(b.wt.scale_, b.wt.rotation_, b.wt.translation_);
+		b.wt.TransferMatrix();
+
+		bulletModel_->Draw(b.wt, *camera_, textureHandle_ /*←弾専用があるなら差し替え*/);
+	}
+}
+
+void Player::SpawnBulletWithPower(float power01) {
+	if (!bulletModel_)
+		return;
+
+	bullets_.emplace_back();
+	Bullet& b = bullets_.back();
+
+	b.alive = true;
+
+	// 強さで寿命・サイズ・速度を変える（通常=0 / チャージ=1）
+	b.life = kBulletLife + power01 * 0.8f;
+
+	b.wt.Initialize();
+
+	Vector3 p = worldTransform_.translation_;
+	float dir = (lrDirection_ == LRDirection::kRight) ? +1.0f : -1.0f;
+
+	// 発射位置
+	p.x += dir * (kWidth * 0.65f);
+	p.y += 0.2f;
+
+	b.wt.translation_ = p;
+
+	// サイズ（通常小・チャージ大）
+	float s = 0.35f + power01 * 0.65f; // 0.35 → 1.0
+	b.wt.scale_ = {s, s, s};
+	b.wt.rotation_ = {0, 0, 0};
+
+	// 速度（チャージの方が速い）
+	float spd = kBulletSpeed + power01 * 10.0f;
+	b.vel = {dir * spd, 0.0f, 0.0f};
+
+	// power01 が 1 に近いならチャージ弾扱い
+	const bool isCharge = (power01 >= 0.999f);
+
+	b.pierce = isCharge;
+	b.pierceLeft = isCharge ? kChargePierceCount_ : 0;
+	b.hitSet.clear();
+
+
+	b.wt.matWorld_ = MakeAffineMatrix(b.wt.scale_, b.wt.rotation_, b.wt.translation_);
+	b.wt.TransferMatrix();
+}
+
+bool Player::GetBulletHitMapInfo(const Bullet& b, IndexSet& outIdx, MapChipType& outType) const {
+	if (!mapChipField_) {
+		return false;
+	}
+
+	static constexpr float kBulletBaseScale = 0.35f;
+	float half = kBulletHalf * (b.wt.scale_.x / kBulletBaseScale);
+
+	float dir = (b.vel.x >= 0.0f) ? +1.0f : -1.0f;
+
+	Vector3 tip = b.wt.translation_;
+	tip.x += dir * half;
+
+	Vector3 tipUp = tip;
+	tipUp.y += half * 0.6f;
+	Vector3 tipDn = tip;
+	tipDn.y -= half * 0.6f;
+
+	auto check = [&](const Vector3& pos) -> bool {
+		IndexSet idx = mapChipField_->GetMapChipIndexByPosition(pos);
+		MapChipType t = mapChipField_->GetMapChipTypeByIndex(idx.xIndex, idx.yIndex);
+		if (IsSolidForSwitch(t, blocksAreRed_)) {
+			outIdx = idx;
+			outType = t;
+			return true;
+		}
+		return false;
+	};
+
+	if (check(tip))
+		return true;
+	if (check(tipUp))
+		return true;
+	if (check(tipDn))
+		return true;
+
+	return false;
 }

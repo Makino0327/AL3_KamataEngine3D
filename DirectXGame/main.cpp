@@ -1,7 +1,7 @@
-#include <Windows.h>
-#include <KamataEngine.h>
 #include "GameScene.h"
 #include "TitleScene.h"
+#include <KamataEngine.h>
+#include <Windows.h>
 
 GameScene* gameScene = nullptr;
 TitleScene* titleScene = nullptr;
@@ -12,18 +12,17 @@ enum class Scene {
 	kGame,
 };
 
-Scene currentScene = Scene::kGame;
-Scene scene = Scene::kUnknown;
+Scene scene = Scene::kTitle;
 
 void ChangeScene() {
 	switch (scene) {
 	case Scene::kTitle:
 		if (titleScene && titleScene->IsFinished()) {
-			// もうTitle使わないなら、この分岐自体を消してOK
-			// （使い続けるならここでGameScene遷移を書く）
 			scene = Scene::kGame;
+
 			delete titleScene;
 			titleScene = nullptr;
+
 			gameScene = new GameScene();
 			gameScene->Initialize();
 		}
@@ -31,17 +30,28 @@ void ChangeScene() {
 
 	case Scene::kGame:
 		if (gameScene && gameScene->IsFinished()) {
-			// ★Titleに戻さず、GameSceneを作り直してリスタート
-			delete gameScene;
-			gameScene = nullptr;
-			gameScene = new GameScene();
-			gameScene->Initialize();
-			// scene はずっと Scene::kGame のまま
+
+			if (gameScene->GetNextScene() == NextScene::kTitle) {
+
+				delete gameScene;
+				gameScene = nullptr;
+
+				scene = Scene::kTitle;
+				titleScene = new TitleScene();
+				titleScene->Initialize();
+
+			} else {
+				delete gameScene;
+				gameScene = nullptr;
+
+				scene = Scene::kGame;
+				gameScene = new GameScene();
+				gameScene->Initialize();
+			}
 		}
 		break;
 	}
 }
-
 
 void UpdateScene() {
 	switch (scene) {
@@ -55,6 +65,7 @@ void UpdateScene() {
 		break;
 	}
 }
+
 void DrawScene() {
 	switch (scene) {
 	case Scene::kTitle:
@@ -68,38 +79,34 @@ void DrawScene() {
 	}
 }
 
-
-
-// Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
-	KamataEngine::Initialize(L"LE2B_21_マキノ_ハルト_AL3");
 
-	using namespace KamataEngine;	
+	KamataEngine::Initialize(L"LE2B_23_マキノ_ハルト_壁を打ち抜け");
+
+	using namespace KamataEngine;
 
 	DirectXCommon* dxCommon = DirectXCommon::GetInstance();
 
-	scene = Scene::kGame;
-	gameScene = new GameScene();
-	gameScene->Initialize();
+	// ✅ 最初はタイトルを生成
+	scene = Scene::kTitle;
+	titleScene = new TitleScene();
+	titleScene->Initialize();
 
 	while (true) {
-		if (KamataEngine::Update()){
+		if (KamataEngine::Update()) {
 			break;
 		}
 
 		ChangeScene();
 		UpdateScene();
-		
-		dxCommon->PreDraw();
 
+		dxCommon->PreDraw();
 		Model::PreDraw(dxCommon->GetCommandList());
 
 		DrawScene();
 
 		Model::PostDraw();
-
 		dxCommon->PostDraw();
-
 	}
 
 	KamataEngine::Finalize();
@@ -108,8 +115,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	titleScene = nullptr;
 	delete gameScene;
 	gameScene = nullptr;
-
-
 
 	return 0;
 }

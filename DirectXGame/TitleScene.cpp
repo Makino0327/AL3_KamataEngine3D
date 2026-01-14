@@ -10,10 +10,10 @@ void TitleScene::Initialize() {
 	playerModel_ = Model::Create();
 	titleTextModel_ = Model::Create();
 	player_ = new Player();
-	playerModel_ = Model::CreateFromOBJ("cat", true);
+	playerModel_ = Model::CreateFromOBJ("grassBlock", true);
 	titleTextModel_ = Model::CreateFromOBJ("doubutuen", true);
 
-	player_->Initialize(playerModel_, &camera_, {0, 0, 0});
+	player_->Initialize(playerModel_, &camera_, {200, 0, 0});
 
 	// スカイドームの生成
 	skydome_ = new Skydome();
@@ -32,31 +32,9 @@ void TitleScene::Initialize() {
 	titleTextTransform_.rotation_.y = std::numbers::pi_v<float> ;
 	titleTextTransform_.Initialize();
 	titleTextTransform_.scale_ = {7.0f, 7.0f, 7.0f};
-	titleTextTransform_.translation_ = {-20.0f, 5.0f, 0.0f};
+	titleTextTransform_.translation_ = {180.0f, 5.0f, 0.0f};
 	titleTextTransform_.matWorld_ = MakeAffineMatrix(titleTextTransform_.scale_, titleTextTransform_.rotation_, titleTextTransform_.translation_);
 	titleTextTransform_.TransferMatrix();
-
-	// 木と草のモデルを追加
-	treeModel_ = Model::CreateFromOBJ("tree", true);   // Resources/tree/tree.obj を置いておく
-	grassModel1_ = Model::CreateFromOBJ("grass", true); // Resources/grass/grass.obj
-
-	// 木の初期化
-	treeTransform_.Initialize();
-	treeTransform_.translation_ = {-8.0f, -5.0f, -35.0f}; // ステージ横に置く
-	treeTransform_.scale_ = {2.0f, 2.0f, 2.0f};
-	treeTransform_.rotation_ = {0.0f, 0.0f, 0.0f};
-	treeTransform_.matWorld_ = MakeAffineMatrix(treeTransform_.scale_, treeTransform_.rotation_, treeTransform_.translation_);
-	treeTransform_.TransferMatrix();
-
-	// 草の初期化
-	grassTransform_.Initialize();
-	grassTransform_.translation_ = {3.0f, -5.0f, -35.0f}; // ステージ反対側に置く
-	grassTransform_.scale_ = {1.5f, 1.5f, 1.5f};
-	grassTransform_.rotation_ = {0.0f, 0.0f, 0.0f};
-	grassTransform_.matWorld_ = MakeAffineMatrix(grassTransform_.scale_, grassTransform_.rotation_, grassTransform_.translation_);
-	grassTransform_.TransferMatrix();
-
-	
 
 	grassTex_ = TextureManager::Load("./Resources/grass/grass.png");
 	fade_ = new Fade();
@@ -139,7 +117,7 @@ void TitleScene::Update() {
 	wt.TransferMatrix();
 
 	uiWT_.Initialize();
-	uiWT_.translation_ = {0.0f, 0.0f, -35.0f};
+	uiWT_.translation_ = {200.0f, 0.0f, -35.0f};
 	uiWT_.scale_ = {6.2f, 6.2f, 6.2f};                      // 画像サイズに相当
 	uiWT_.rotation_ = {std::numbers::pi_v<float> / 2, std::numbers::pi_v<float> ,0}; // メッシュがXY平面なら調整
 	uiWT_.matWorld_ = MakeAffineMatrix(uiWT_.scale_, uiWT_.rotation_, uiWT_.translation_);
@@ -151,7 +129,7 @@ void TitleScene::Update() {
 	spaceWT_.rotation_.y = std::numbers::pi_v<float>;
 	spaceWT_.Initialize();
 	spaceWT_.scale_ = {3.0f, 3.0f, 3.0f};
-	spaceWT_.translation_ = {0.0f, 0.0f, 0.0f};
+	spaceWT_.translation_ = {200.0f, 0.0f, 0.0f};
 	spaceWT_.matWorld_ = MakeAffineMatrix(spaceWT_.scale_, spaceWT_.rotation_, spaceWT_.translation_);
 	spaceWT_.TransferMatrix();
 
@@ -177,6 +155,7 @@ void TitleScene::Update() {
 
 		case Phase::kHowToPlay:
 		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+			    seDecideId_ = Audio::GetInstance()->PlayWave(seDecideHandle_, false); 
 			fade_->Start(Status::FadeOut, 1.0f);
 			phase_ = Phase::kFadeOut;
 		}
@@ -190,6 +169,10 @@ void TitleScene::Update() {
 		}
 		break;
 	}
+
+	// ★タイトル画面だけ、カメラを少し右へ
+	camera_.translation_.x = 200.0f; // ← 右に寄せたい量（好みで調整）
+	camera_.UpdateMatrix();
 }
 
 void TitleScene::Draw() {
@@ -230,12 +213,12 @@ void TitleScene::Draw() {
 				}
 			}
 		}
-		if (treeModel_) {
+		/*if (treeModel_) {
 			treeModel_->Draw(treeTransform_, camera_);
 		}
 		if (grassModel1_) {
 			grassModel1_->Draw(grassTransform_, camera_, grassTex_);
-		}
+		}*/
 
 		// 既存どおり
 		if (titleTextModel_) {

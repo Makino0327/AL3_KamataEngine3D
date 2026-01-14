@@ -11,6 +11,8 @@
 #include <cstdint>   // uint32_t を安全に使う（環境によっては必須）
 #include <list>      // std::list（※ enemies_ / trees_ / grasses_ で使ってる）
 #include <vector>    // std::vector
+#include <deque>
+
 
 // =========================================
 // Project / Engine
@@ -28,6 +30,12 @@
 #include "Skydome.h"
 #include "TitleScene.h"
 #include "Vector.h"
+
+enum class NextScene {
+	kNone = 0,
+	kTitle,
+	kRestart,
+};
 
 // =========================================
 // GameScene
@@ -147,6 +155,7 @@ public:
 	uint32_t blockTexRed_ = 0;
 	uint32_t blockTexBlue_ = 0;
 	uint32_t blockTexGrass_ = 0;
+	uint32_t blockTexW_ = 0;
 	KamataEngine::Model* cubeModel_ = nullptr;
 
 	bool blocksAreRed_ = true; // true=赤 / false=青
@@ -187,6 +196,62 @@ public:
 	KamataEngine::WorldTransform goalWT_;
 	uint32_t goalTex_ = 0;
 
+	KamataEngine::Model* bulletModel_ = nullptr;
+
+	// ポーズ
+	bool isPaused_ = false;
+
+	// 画面暗くする用
+	uint32_t pauseOverlayTex_ = 0;
+	std::unique_ptr<KamataEngine::Sprite> pauseOverlaySprite_;
+
+	Sprite* pauseSprite_ = nullptr; // pause.png
+	uint32_t pauseTexHandle_ = 0;
+
+	int pauseCursor_ = 0; // 0:ゲームに戻る / 1:タイトルに戻る
+
+	Sprite* pauseBackGame_ = nullptr;
+	Sprite* pauseBackTitle_ = nullptr;
+
+	// -----------------------------
+	struct BreakPiece {
+		WorldTransform wt;
+		Vector3 vel;       // 移動速度
+		Vector3 rotVel;    // 回転速度
+		float life = 0.0f; // 残り寿命
+		uint32_t tex = 0;
+		Model* model = nullptr;
+		bool alive = false;
+	};
+
+	std::deque<BreakPiece> breakPieces_;
+	static constexpr int kBreakPiecesPerBlock = 4;
+	std::vector<IndexSet> brokenChargeBlocks_;
+
+	std::vector<std::vector<MapChipType>> prevMap_; // 前フレームのマップ状態
+
+	// GameScene.h（private に追加）
+
+	uint32_t gameBGMHandle_ = 0;
+	int gameBGMPlayingId_ = -1;
+	bool gameBGMStarted_ = false; // 二重再生防止
+	uint32_t gameClearBGMHandle_ = 0;
+	int gameClearBGMPlayingId_ = -1;
+
+	uint32_t gameOverBGMHandle_ = 0;
+	int gameOverBGMPlayingId_ = -1;
+
+	bool playedGameOverBGM_ = false;
+	bool playedClearBGM_ = false;
+
+	uint32_t deathHandle_ = 0;
+	int deathPlayingId_ = -1;
+	bool deathStarted_ = false; // 二重再生防止
+
+	uint32_t seDecideHandle_ = 0; // 決定音のハンドル
+	int seDecideId_ = -1;         // 再生ID（必要なら停止用）
+	bool sePlayed_ = false;       // 二重再生防止
+
 public:
 	// -----------------------------
 	// Lifecycle
@@ -198,6 +263,7 @@ public:
 
 	// -----------------------------
 	// Helpers
+	// Helpers
 	// -----------------------------
 	void GenerateBlocks();
 	void CheckAllCollisions();
@@ -207,10 +273,18 @@ public:
 	void ChangePhase();
 	bool IsFinished() const { return finished_; }
 
+	NextScene GetNextScene() const { return nextScene_; }
+
+	NextScene nextScene_ = NextScene::kNone;
+
 	// -----------------------------
 	// Enemy Spawns
 	// -----------------------------
 	Enemy* SpawnEnemyGrid(uint32_t gx, uint32_t gy, float yOffset);
 	Enemy* SpawnEnemyAt(const Vector3& pos);
 	Enemy* SpawnEnemyGridByBlocks(uint32_t gx, uint32_t gy, int yBlocksOffset = 0);
+	void SpawnBlockBreakEffect(uint32_t x, uint32_t y, uint32_t tex, Model* model);
+	void UpdateBlockBreakPieces(float dt);
+	void BreakChargeBlock(uint32_t x, uint32_t y);
+	std::vector<IndexSet> ConsumeBrokenChargeBlocks();
 };

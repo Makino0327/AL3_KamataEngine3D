@@ -11,6 +11,7 @@ std::unordered_map<std::string, MapChipType> mapChipTable = {
     {"2", MapChipType::kBlockRed }, // 追加
     {"3", MapChipType::kBlockBlue}, // 追加
     {"4", MapChipType::kGoal     },
+    {"5", MapChipType::kChargeBreakable}, // ★追加：チャージで壊せる
 };
 }
 
@@ -97,3 +98,12 @@ Rect MapChipField::GetRectByIndex(uint32_t xIndex, uint32_t yIndex) {
 	return rect;
 }
 
+void MapChipField::SetMapChipTypeByIndex(uint32_t xIndex, uint32_t yIndex, MapChipType type) {
+	if (xIndex >= kNumBlockHorizontal) {
+		return;
+	}
+	if (yIndex >= kNumBlockVirtical) {
+		return;
+	}
+	mapChipData_.data[yIndex][xIndex] = type;
+}
