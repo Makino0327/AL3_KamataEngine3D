@@ -1,4 +1,5 @@
 #include "MyMath.h"
+#include "Vector.h"
 
 using KamataEngine::Matrix4x4;
 using KamataEngine::Vector3;
@@ -75,4 +76,15 @@ Vector3 Normalize3(const Vector3& v) {
 	return Vector3{v.x * invLen, v.y * invLen, v.z * invLen};
 }
 
+Vector4 Transform4(const KamataEngine::Vector4& v, const KamataEngine::Matrix4x4& m) {
+	KamataEngine::Vector4 r{};
+	r.x = v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0] + v.w * m.m[3][0];
+	r.y = v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1] + v.w * m.m[3][1];
+	r.z = v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2] + v.w * m.m[3][2];
+	r.w = v.x * m.m[0][3] + v.y * m.m[1][3] + v.z * m.m[2][3] + v.w * m.m[3][3];
+	return r;
+}
+
+
 } // namespace MyMath
+

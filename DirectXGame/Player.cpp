@@ -57,8 +57,10 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	corrected.y -= modelYOffset_;
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, corrected);
 	worldTransform_.TransferMatrix();
+	guideVisible_ = true;
+	hasGuideTarget_ = false;
 
-	
+
 }
 
 void Player::Update(float deltaTime) {
@@ -77,8 +79,8 @@ void Player::Update(float deltaTime) {
 	// --------------------
 	// E：短押し=通常 / 長押し=チャージ（離した瞬間に発射）
 	// --------------------
-	const bool eDown = Input::GetInstance()->PushKey(DIK_E);
-	const bool eTrigger = Input::GetInstance()->TriggerKey(DIK_E);
+	const bool eDown = KamataEngine::Input::GetInstance()->IsTriggerMouse(0);
+	const bool eTrigger = KamataEngine::Input::GetInstance()->IsPressMouse(0);
 
 	// Release（離した瞬間）を自前で作る
 	static bool prevEDown = false;
@@ -111,7 +113,6 @@ void Player::Update(float deltaTime) {
 			chargeReadyFlash_ = 0.0f;
 	}
 
-
 	// 離した瞬間：発射
 	if (isCharging_ && eRelease) {
 		const bool isChargeShot = (chargeTime_ >= kChargeThreshold_);
@@ -132,7 +133,6 @@ void Player::Update(float deltaTime) {
 		chargePopTimer_ = 0.0f;
 	}
 
-
 	// 無敵点滅タイマー
 	if (damageCooldownTimer_ > 0.0f) {
 		blinkTimer_ += deltaTime;
@@ -141,7 +141,7 @@ void Player::Update(float deltaTime) {
 	}
 
 	// 攻撃開始（Root中 & E押下 & クール明け）
-	if (behaviorState_ == BehaviorState::kRoot && Input::GetInstance()->TriggerKey(DIK_SPACE) && attackCooldownTimer_ <= 0.0f) {
+	if (behaviorState_ == BehaviorState::kRoot && Input::GetInstance()->TriggerKey(DIK_E) && attackCooldownTimer_ <= 0.0f) {
 
 		behaviorState_ = BehaviorState::kAttack;
 		attackTimer_ = 0.0f;
@@ -155,6 +155,7 @@ void Player::Update(float deltaTime) {
 			velocity_.y = std::min(velocity_.y, 0.0f);
 		}
 	}
+
 
 
 	// 状態更新
@@ -174,11 +175,46 @@ void Player::Update(float deltaTime) {
 		break;
 	}
 
+	UpdateWireDots();
+	wireDotWts_.reserve(128);
+
+
 	// 行列更新（ここだけでOK：InputMove内では更新しない）
 	Vector3 corrected = worldTransform_.translation_;
 	corrected.y -= modelYOffset_;
 	worldTransform_.matWorld_ = MakeAffineMatrix(worldTransform_.scale_, worldTransform_.rotation_, corrected);
 	worldTransform_.TransferMatrix();
+}
+
+void Player::UpdateWireAimDebug(const Ray& mouseRay) 
+{
+	if (!wireDebugDraw_ || !mapChipField_) {
+		return;
+	}
+
+	Vector3 mouseOnPlane{};
+	if (!IntersectPlaneZ(mouseRay, worldTransform_.translation_.z, mouseOnPlane)) {
+		return;
+	}
+
+	Vector3 origin = worldTransform_.translation_;
+	Vector3 dir = {mouseOnPlane.x - origin.x, mouseOnPlane.y - origin.y, 0.0f};
+	float len2 = dir.x * dir.x + dir.y * dir.y;
+	if (len2 < 0.000001f) {
+		return;
+	}
+	dir = MyMath::Normalize3(dir);
+
+	Rect r00 = mapChipField_->GetRectByIndex(0, 0);
+	float cellW = (r00.right - r00.left);
+	float cellH = (r00.top - r00.bottom);
+	float cell = (std::min)(cellW, cellH);
+	float maxLen = cell * 10.0f;
+
+	wireAimFrom_ = origin;
+	wireAimTo_ = {origin.x + dir.x * maxLen, origin.y + dir.y * maxLen, origin.z};
+
+	wireAimHasHit_ = FindWireHitPoint(origin, dir, maxLen, wireAimHit_);
 }
 
 void Player::Draw() {
@@ -557,13 +593,67 @@ void Player::OnCollision() {
 //==================================================
 
 void Player::BehaviorRootUpdate() {
+	if (wireActive_) {
+
+		Vector3 pos = worldTransform_.translation_;
+
+		// ---- 2D化：Zは固定（レイのzズレで変な方向にならない）
+		Vector3 to{wireTarget_.x - pos.x, wireTarget_.y - pos.y, 0.0f};
+
+		float dist2 = to.x * to.x + to.y * to.y;
+		if (dist2 <= wireStop_ * wireStop_) {
+			wireActive_ = false;
+			velocity_.x = 0.0f;
+			velocity_.y = 0.0f;
+			return;
+		}
+
+		Vector3 dir = MyMath::Normalize3(to);
+
+		// ★向きをワイヤー方向に合わせる（turnで逆向きに見えるの防止）
+		lrDirection_ = (dir.x >= 0.0f) ? LRDirection::kRight : LRDirection::kLeft;
+
+		// ---- dt を BehaviorRootUpdate に渡してない設計なので 60fps 換算で進める
+		// wireSpeed_ を「1秒あたり」とするなら 1/60 を掛ける
+		const float dt = 1.0f / 60.0f;
+
+		Vector3 move{dir.x * wireSpeed_ * dt, dir.y * wireSpeed_ * dt, 0.0f};
+
+		// 行き過ぎ防止（2D距離で判定）
+		float move2 = move.x * move.x + move.y * move.y;
+		if (move2 >= dist2) {
+			worldTransform_.translation_.x = wireTarget_.x;
+			worldTransform_.translation_.y = wireTarget_.y;
+			// zは維持
+			wireActive_ = false;
+			velocity_.x = 0.0f;
+			velocity_.y = 0.0f;
+			return;
+		}
+
+		CollisionInfo info{};
+		info.move = move;
+
+		CheckCollisionMap(info);
+
+		// 壁に当たったら解除
+		if (info.isHitLeft || info.isHitRight || info.isHitTop || info.isHitBottom) {
+			wireActive_ = false;
+			velocity_.x = 0.0f;
+			velocity_.y = 0.0f;
+			return;
+		}
+
+		ApplyCollisionResult(info);
+		return;
+	}
 	// スケール戻す
 	worldTransform_.scale_ = {1.0f, 1.0f, 1.0f};
 	attackScaleTimer_ = 0.0f;
 
 	// ★追加：攻撃の前のめり等を確実に戻す
 	worldTransform_.rotation_.x = 0.0f;
-	worldTransform_.rotation_.z = 0.0f; 
+	worldTransform_.rotation_.z = 0.0f;
 
 	// =======================
 	// ★チャージ演出（分かりやすい版）
@@ -608,9 +698,11 @@ void Player::BehaviorRootUpdate() {
 		worldTransform_.scale_.y *= recoil;
 	}
 
-
 	// 入力による移動
-	InputMove();
+	// 入力による移動（ワイヤー中は入力で上書きしない）
+	if (!wireActive_) {
+		InputMove();
+	}
 
 	// =======================
 	// 振り返りイージング
@@ -646,10 +738,9 @@ void Player::BehaviorRootUpdate() {
 		turnTimer_ = kTimeTurn;
 	}
 
-
 	const bool left = Input::GetInstance()->PushKey(DIK_A);
 	const bool right = Input::GetInstance()->PushKey(DIK_D);
-	const bool jumpPressed = Input::GetInstance()->TriggerKey(DIK_W);
+	const bool jumpPressed = Input::GetInstance()->TriggerKey(DIK_SPACE) || Input::GetInstance()->TriggerKey(DIK_W);
 
 	// 壁ジャンプ先行判定（前フレーム接触情報）
 	bool wantWallJump = false;
@@ -808,8 +899,6 @@ void Player::BehaviorAttackUpdate() {
 	CheckHitCeiling(collisionInfo);
 }
 
-
-
 //==================================================
 // Utility
 //==================================================
@@ -905,7 +994,6 @@ AABB Player::GetAttackAABB() const {
 	return body;
 }
 
-
 bool Player::BulletHitMap(const Bullet& b) const {
 	if (!mapChipField_)
 		return false;
@@ -935,7 +1023,6 @@ bool Player::BulletHitMap(const Bullet& b) const {
 
 	return isSolidAt(tip) || isSolidAt(tipUp) || isSolidAt(tipDn);
 }
-
 
 void Player::UpdateBullets(float dt, const std::list<Enemy*>& enemies) {
 
@@ -1034,7 +1121,6 @@ void Player::UpdateBullets(float dt, const std::list<Enemy*>& enemies) {
 	}
 }
 
-
 // Player.cpp
 std::vector<IndexSet> Player::ConsumeBrokenChargeBlocks() {
 	std::vector<IndexSet> out;
@@ -1097,7 +1183,6 @@ void Player::SpawnBulletWithPower(float power01) {
 	b.pierceLeft = isCharge ? kChargePierceCount_ : 0;
 	b.hitSet.clear();
 
-
 	b.wt.matWorld_ = MakeAffineMatrix(b.wt.scale_, b.wt.rotation_, b.wt.translation_);
 	b.wt.TransferMatrix();
 }
@@ -1139,4 +1224,279 @@ bool Player::GetBulletHitMapInfo(const Bullet& b, IndexSet& outIdx, MapChipType&
 		return true;
 
 	return false;
+}
+
+void Player::StartWireTo(const KamataEngine::Vector3& target) {
+	wireTarget_ = target;
+	wireActive_ = true;
+}
+
+void Player::UpdateWire(float dt) {
+	if (!wireActive_) {
+		return;
+	}
+
+	Vector3 pos = worldTransform_.translation_;
+	Vector3 to{wireTarget_.x - pos.x, wireTarget_.y - pos.y, wireTarget_.z - pos.z};
+
+	float dist2 = to.x * to.x + to.y * to.y + to.z * to.z;
+	if (dist2 <= wireStop_ * wireStop_) {
+		wireActive_ = false;
+		velocity_.x = 0.0f;
+		velocity_.y = 0.0f;
+		return;
+	}
+
+	Vector3 dir = MyMath::Normalize3(to);
+
+	// “秒速” → “このフレームの移動量”
+	Vector3 move{dir.x * wireSpeed_ * dt, dir.y * wireSpeed_ * dt, 0.0f};
+
+	// 行き過ぎ防止
+	float move2 = move.x * move.x + move.y * move.y + move.z * move.z;
+	if (move2 >= dist2) {
+		worldTransform_.translation_ = wireTarget_;
+		wireActive_ = false;
+		velocity_.x = 0.0f;
+		velocity_.y = 0.0f;
+		return;
+	}
+
+	// “move量”としてvelocity_に入れる（君の設計に合わせる）
+	velocity_.x = move.x;
+	velocity_.y = move.y;
+}
+
+
+// 直線上の最初の壁を探して、引っかかり点(outHit)を返す
+bool Player::FindWireHitPoint(
+    const Vector3& origin,
+    const Vector3& dirN, // 正規化済み
+    float maxLen, Vector3& outHit) const {
+	if (!mapChipField_) {
+		return false;
+	}
+
+	// ステップ幅：マップチップの1/4くらいで十分安定（小さすぎると重い）
+	// Rect を使ってセルサイズを拾う（0,0 が取れる前提）
+	Rect r00 = mapChipField_->GetRectByIndex(0, 0);
+	float cellW = (r00.right - r00.left);
+	float cellH = (r00.top - r00.bottom);
+	float step = (std::min)(cellW, cellH) * 0.25f;
+	if (step <= 0.0001f) {
+		step = 0.25f;
+	}
+
+	// 直線を前進
+	Vector3 prevPos = origin;
+
+	// 「最初から壁の中」対策：少し前に出た所から始める
+	float t = step;
+
+	for (; t <= maxLen; t += step) {
+		Vector3 p = {origin.x + dirN.x * t, origin.y + dirN.y * t, origin.z + dirN.z * t};
+
+		IndexSet idx = mapChipField_->GetMapChipIndexByPosition(p);
+		MapChipType type = mapChipField_->GetMapChipTypeByIndex(idx.xIndex, idx.yIndex);
+
+		if (IsSolidForSwitch(type, blocksAreRed_)) {
+			// 当たったセルのRect
+			Rect rect = mapChipField_->GetRectByIndex(idx.xIndex, idx.yIndex);
+
+			// prevPos -> p のどっち側から入ったかで、面を決める（簡易）
+			// 直線状にある壁に “引っかかる” ならこれで十分
+			Vector3 hit = p;
+
+			// 左から入った
+			if (prevPos.x < rect.left && p.x >= rect.left) {
+				hit.x = rect.left;
+			}
+			// 右から入った
+			else if (prevPos.x > rect.right && p.x <= rect.right) {
+				hit.x = rect.right;
+			}
+
+			// 下から入った
+			if (prevPos.y < rect.bottom && p.y >= rect.bottom) {
+				hit.y = rect.bottom;
+			}
+			// 上から入った
+			else if (prevPos.y > rect.top && p.y <= rect.top) {
+				hit.y = rect.top;
+			}
+
+			// めり込み防止：少し手前で止める（壁面から少し離す）
+			const float back = (std::min)(step, 0.15f);
+			hit.x -= dirN.x * back;
+			hit.y -= dirN.y * back;
+			hit.z -= dirN.z * back;
+
+			outHit = hit;
+			return true;
+		}
+
+		prevPos = p;
+	}
+
+	return false;
+}
+void Player::StartWireByMouseRay(const Ray& mouseRay) {
+	Vector3 mouseOnPlane{};
+	if (!IntersectPlaneZ(mouseRay, worldTransform_.translation_.z, mouseOnPlane)) {
+		return;
+	}
+
+	Vector3 origin = worldTransform_.translation_;
+	Vector3 dir = {mouseOnPlane.x - origin.x, mouseOnPlane.y - origin.y, 0.0f};
+
+	const float len2 = dir.x * dir.x + dir.y * dir.y;
+	if (len2 < 0.000001f) {
+		return;
+	}
+	dir = MyMath::Normalize3(dir);
+
+	Rect r00 = mapChipField_->GetRectByIndex(0, 0);
+	float cellW = (r00.right - r00.left);
+	float cellH = (r00.top - r00.bottom);
+	float cell = (std::min)(cellW, cellH);
+	float maxLen = cell * 10.0f;
+
+	Vector3 hit{};
+	if (FindWireHitPoint(origin, dir, maxLen, hit)) {
+
+		StartWireTo(hit);
+
+		// ★長さ（可視化用の値だけ保持）
+		Vector3 d = {hit.x - origin.x, hit.y - origin.y, 0.0f};
+		wireDebugLength_ = std::sqrt(d.x * d.x + d.y * d.y);
+
+	} else {
+		// 壁が無い時は長さ0
+		wireDebugLength_ = 0.0f;
+	}
+}
+
+
+void Player::DrawWireDots() const {
+	// ワイヤー中 OR ガイド表示中 のどちらかなら描く
+	const bool draw = wireActive_ || (guideVisible_ && hasGuideTarget_);
+	if (!draw) {
+		return;
+	}
+
+	for (const auto& p : wireDotWts_) {
+		if (!p)
+			continue;
+		model_->Draw(*p, *camera_, textureHandle_);
+	}
+}
+
+
+
+void Player::UpdateWireDots() {
+	// ワイヤー中なら wireTarget_、そうでないなら guideTarget_
+	bool active = wireActive_;
+	if (!active) {
+		if (!hasGuideTarget_) {
+			wireDotWts_.clear();
+			return;
+		}
+	}
+
+	Vector3 a = worldTransform_.translation_;
+	Vector3 b = active ? wireTarget_ : guideTarget_;
+
+	Vector3 ab{b.x - a.x, b.y - a.y, 0.0f};
+	float dist2 = ab.x * ab.x + ab.y * ab.y;
+	if (dist2 < 1e-6f) {
+		wireDotWts_.clear();
+		return;
+	}
+	float dist = std::sqrt(dist2);
+	Vector3 dir = MyMath::Normalize3(ab);
+
+	// ★ここが “目立たなくする” パラメータ
+	float spacing = active ? 0.6f : 1.4f;  // ガイドは間隔広め
+	float sSmall = active ? 0.18f : 0.10f; // ガイドは小さめ
+	float sBig = active ? 0.32f : 0.14f;   // ガイド終点も控えめ
+	int maxDots = active ? 64 : 18;        // ガイドは本数制限
+
+	int count = (int)(dist / spacing);
+	if (count < 1)
+		count = 1;
+	if (count > maxDots)
+		count = maxDots;
+
+	int total = count + 1;
+
+	while ((int)wireDotWts_.size() < total) {
+		auto wt = std::make_unique<KamataEngine::WorldTransform>();
+		wt->Initialize();
+		wt->rotation_ = {0, 0, 0};
+		wireDotWts_.push_back(std::move(wt));
+	}
+	while ((int)wireDotWts_.size() > total) {
+		wireDotWts_.pop_back();
+	}
+
+	for (int i = 0; i < total; ++i) {
+		float t = (total <= 1) ? 1.0f : (float)i / (float)(total - 1);
+
+		Vector3 p{a.x + dir.x * (dist * t), a.y + dir.y * (dist * t), a.z};
+
+		float s = (i == total - 1) ? sBig : sSmall;
+
+		auto& wt = *wireDotWts_[i];
+		wt.translation_ = p;
+		wt.scale_ = {s, s, s};
+
+		wt.matWorld_ = MakeAffineMatrix(wt.scale_, wt.rotation_, wt.translation_);
+		wt.TransferMatrix();
+	}
+}
+
+void Player::SetWireGuideTarget(const Vector3& p) {
+	guideTarget_ = p;
+	hasGuideTarget_ = true;
+}
+
+void Player::UpdateWireGuideByMouseRay(const Ray& mouseRay) {
+	if (!mapChipField_) {
+		return;
+	}
+
+	// マウスがいる平面上の点（プレイヤーと同じZ平面）
+	Vector3 mouseOnPlane{};
+	if (!IntersectPlaneZ(mouseRay, worldTransform_.translation_.z, mouseOnPlane)) {
+		hasGuideTarget_ = false;
+		return;
+	}
+
+	Vector3 origin = worldTransform_.translation_;
+
+	// 2D化（Z固定）
+	Vector3 dir = {mouseOnPlane.x - origin.x, mouseOnPlane.y - origin.y, 0.0f};
+	float len2 = dir.x * dir.x + dir.y * dir.y;
+	if (len2 < 1e-6f) {
+		hasGuideTarget_ = false;
+		return;
+	}
+	dir = MyMath::Normalize3(dir);
+
+	// “届く距離” = セルサイズ×10（StartWireByMouseRay と同じルール）
+	Rect r00 = mapChipField_->GetRectByIndex(0, 0);
+	float cellW = (r00.right - r00.left);
+	float cellH = (r00.top - r00.bottom);
+	float cell = (std::min)(cellW, cellH);
+	float maxLen = cell * 10.0f;
+
+	// 壁があればそこまで、無ければ最大距離まで
+	Vector3 hit{};
+	if (FindWireHitPoint(origin, dir, maxLen, hit)) {
+		guideTarget_ = hit;
+	} else {
+		guideTarget_ = {origin.x + dir.x * maxLen, origin.y + dir.y * maxLen, origin.z};
+	}
+
+	hasGuideTarget_ = true;
 }

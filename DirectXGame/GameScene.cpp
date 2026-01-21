@@ -48,6 +48,52 @@ constexpr float kKillOffsetTiles = 2.0f;
 
 inline float Clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
 
+
+inline Ray MakeMouseRayLH(const KamataEngine::Camera& cam, float mx, float my, float w, float h) {
+	// 画面→NDC
+	float x = (2.0f * mx / w) - 1.0f;
+	float y = 1.0f - (2.0f * my / h);
+
+	KamataEngine::Vector4 nearNdc{x, y, 0.0f, 1.0f};
+	KamataEngine::Vector4 farNdc{x, y, 1.0f, 1.0f};
+
+	// VP逆
+	KamataEngine::Matrix4x4 vp = MyMath::Mul(cam.matView, cam.matProjection);
+	KamataEngine::Matrix4x4 invVP = MyMath::Inverse(vp);
+
+	// ★Vector4×Matrix4x4
+	KamataEngine::Vector4 nearW = MyMath::Transform4(nearNdc, invVP);
+	KamataEngine::Vector4 farW = MyMath::Transform4(farNdc, invVP);
+
+	// 透視除算
+	nearW.x /= nearW.w;
+	nearW.y /= nearW.w;
+	nearW.z /= nearW.w;
+	farW.x /= farW.w;
+	farW.y /= farW.w;
+	farW.z /= farW.w;
+
+	KamataEngine::Vector3 o{nearW.x, nearW.y, nearW.z};
+	KamataEngine::Vector3 f{farW.x, farW.y, farW.z};
+
+	KamataEngine::Vector3 d{f.x - o.x, f.y - o.y, f.z - o.z};
+	d = MyMath::Normalize3(d);
+
+	return {o, d};
+}
+
+inline bool IntersectPlaneZ(const Ray& ray, float zPlane, KamataEngine::Vector3& outHit) {
+	if (std::fabs(ray.dir.z) < 1e-5f)
+		return false;
+	float t = (zPlane - ray.origin.z) / ray.dir.z;
+	if (t < 0.0f)
+		return false;
+
+	outHit = {ray.origin.x + ray.dir.x * t, ray.origin.y + ray.dir.y * t, ray.origin.z + ray.dir.z * t};
+	return true;
+}
+
+
 } // namespace
 
 // =========================
@@ -386,6 +432,12 @@ void GameScene::Initialize() {
 	deathHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/death.mp3");
 	deathStarted_ = false;
 	seDecideHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/kettei.mp3");
+
+	wireMarkerWT_.Initialize();
+	wireMarkerWT_.scale_ = {0.25f, 0.25f, 0.25f};
+	wireMarkerWT_.rotation_ = {0, 0, 0};
+	wireMarkerWT_.translation_ = {0, 0, 0};
+	wireMarkerActive_ = false;
 }
 
 // =========================
@@ -517,6 +569,49 @@ void GameScene::UpdatePlay(float deltaTime) {
 	} else {
 		camera_.UpdateMatrix();
 	}
+
+	// 右クリックでワイヤー開始（※入力取得は君の環境に合わせて）
+	// 右クリックでワイヤー開始
+	// 右クリックでワイヤー開始（壁がある時だけ）
+	if (KamataEngine::Input::GetInstance()->IsTriggerMouse(1)) {
+
+		const auto& mp = KamataEngine::Input::GetInstance()->GetMousePosition();
+		float mx = mp.x;
+		float my = mp.y;
+
+		const float sw = 1280.0f;
+		const float sh = 720.0f;
+
+		Ray ray = MakeMouseRayLH(camera_, mx, my, sw, sh);
+
+		// ★壁がある時だけ発動（Player側でFindWireHitPointする）
+		player_->StartWireByMouseRay(ray);
+
+		// マーカー表示は「実際にワイヤーが開始できた時だけ」
+		if (player_->IsWireActive()) {
+			wireMarkerWT_.translation_ = player_->GetWireTarget(); // ← getter 作る
+			wireMarkerActive_ = true;
+		} else {
+			wireMarkerActive_ = false;
+		}
+	}
+
+	// 常にガイド用ターゲットを更新（ワイヤーしてなくても）
+	{
+		const auto& mp = KamataEngine::Input::GetInstance()->GetMousePosition();
+		float mx = mp.x;
+		float my = mp.y;
+
+		const float sw = 1280.0f;
+		const float sh = 720.0f;
+
+		Ray ray = MakeMouseRayLH(camera_, mx, my, sw, sh);
+
+		player_->UpdateWireGuideByMouseRay(ray);
+
+	}
+
+
 
 	// ---------------------------------
 	// ブロック行列転送（必要なら）
@@ -857,6 +952,7 @@ void GameScene::Draw() {
 	if (!player_->IsDead()) {
 		player_->Draw();
 		player_->DrawBullets();
+		player_->DrawWireDots();
 	} else {
 		if (deathParticles_) {
 			deathParticles_->Draw();
@@ -976,6 +1072,15 @@ void GameScene::Draw() {
 			m->Draw(countWT_, camera_);
 		}
 	}
+
+	if (wireMarkerActive_ && player_ && player_->IsWireActive()) {
+		wireMarkerWT_.matWorld_ = MakeAffineMatrix(wireMarkerWT_.scale_, wireMarkerWT_.rotation_, wireMarkerWT_.translation_);
+		wireMarkerWT_.TransferMatrix();
+
+		// 例：cubeModel_で描く（テクスチャ無しでもOKなモデルならOK）
+		cubeModel_->Draw(wireMarkerWT_, camera_, blockTexW_);
+	}
+
 
 	// --- GameClear ---
 	if (phase_ == Phase::kGameClear) {

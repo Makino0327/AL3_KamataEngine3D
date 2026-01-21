@@ -252,6 +252,10 @@ public:
 	int seDecideId_ = -1;         // 再生ID（必要なら停止用）
 	bool sePlayed_ = false;       // 二重再生防止
 
+	KamataEngine::WorldTransform wireMarkerWT_;
+	bool wireMarkerActive_ = false;
+
+
 public:
 	// -----------------------------
 	// Lifecycle

@@ -17,6 +17,11 @@
 // ヘッダで using namespace は事故の元なのでやらない
 // using namespace KamataEngine; ←削除
 
+struct Ray {
+	KamataEngine::Vector3 origin;
+	KamataEngine::Vector3 dir;
+};
+
 // =========================
 // 定数（今のまま global でOK）
 // =========================
@@ -84,6 +89,25 @@ private:
 	MapChipField* mapChipField_ = nullptr;
 
 public:
+	static bool IntersectPlaneZ(const Ray& ray, float zPlane, Vector3& outHit) {
+		const float eps = 1e-6f;
+
+		// ray.dir.z が 0 に近いと平面と平行で交わらない
+		if (std::fabs(ray.dir.z) < eps) {
+			return false;
+		}
+
+		// ray.origin + ray.dir * t の z が zPlane になる t
+		float t = (zPlane - ray.origin.z) / ray.dir.z;
+
+		// 後ろ方向は無視
+		if (t < 0.0f) {
+			return false;
+		}
+
+		outHit = {ray.origin.x + ray.dir.x * t, ray.origin.y + ray.dir.y * t, ray.origin.z + ray.dir.z * t};
+		return true;
+	}
 	// ========= Getter =========
 	const KamataEngine::Vector3& GetPosition() const { return worldTransform_.translation_; }
 	const KamataEngine::Vector3& GetVelocity() const { return velocity_; }
@@ -153,6 +177,7 @@ public:
 	// ========= Core =========
 	void Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const KamataEngine::Vector3& position);
 	void Update(float deltaTime);
+	void UpdateWireAimDebug(const Ray& mouseRay);
 	void Draw();
 
 	std::vector<IndexSet> ConsumeBrokenChargeBlocks();
@@ -305,4 +330,46 @@ private:
 	}
 	
 	std::vector<IndexSet> brokenChargeBlocks_;
+
+	public:
+	void StartWireTo(const KamataEngine::Vector3& target);
+	    void UpdateWire(float dt); // Updateの最初に呼ぶ
+	bool FindWireHitPoint(const Vector3& origin, const Vector3& dirN, float maxLen, Vector3& outHit) const;
+	    void StartWireByMouseRay(const Ray& mouseRay);
+	struct WireAimDebug {
+		KamataEngine::Vector3 from{};
+		KamataEngine::Vector3 to{};
+		bool hasHit = false;
+		KamataEngine::Vector3 hit{};
+	};
+
+	float wireDebugLength_ = 0.0f;
+
+	bool IsWireActive() const { return wireActive_; }
+	const KamataEngine::Vector3& GetWireTarget() const { return wireTarget_; }
+	void DrawWireDots() const;
+	void UpdateWireDots();
+	void SetWireGuideTarget(const Vector3& p);
+	std::vector<std::unique_ptr<KamataEngine::WorldTransform>> wireDotWts_;
+	void UpdateWireGuideByMouseRay(const Ray& mouseRay);
+
+
+private:
+	bool wireActive_ = false;
+	KamataEngine::Vector3 wireTarget_{};
+
+	float wireSpeed_ = 20.0f; // 調整用
+	float wireStop_ = 0.35f;  // 近づいたら止まる
+
+	// デバッグ表示用（エイム線）
+	bool wireDebugDraw_ = true;
+	Vector3 wireAimFrom_{};
+	Vector3 wireAimTo_{};
+	bool wireAimHasHit_ = false;
+	Vector3 wireAimHit_{};
+
+	private:
+	bool guideVisible_ = true;
+	KamataEngine::Vector3 guideTarget_{0, 0, 0};
+	bool hasGuideTarget_ = false;
 };
