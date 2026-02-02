@@ -372,4 +372,27 @@ private:
 	bool guideVisible_ = true;
 	KamataEngine::Vector3 guideTarget_{0, 0, 0};
 	bool hasGuideTarget_ = false;
+
+	// 2D狙い方向（正規化済み）。デフォは右向き
+	Vector3 aimDir_ = {1.0f, 0.0f, 0.0f};
+
+	// ---- Ammo / Reload ----
+	static constexpr int kMaxAmmo_ = 10;
+
+	int ammo_ = kMaxAmmo_;                      // 現在弾数
+	bool reloading_ = false;                    // リロード中
+	float reloadTimer_ = 0.0f;                  // 残り時間
+	static constexpr float kReloadTime_ = 1.2f; // 好みで
+
+	// Player.h の private: に追加
+	float wireCooldownTimer_ = 0.0f;               // 残り秒
+	static constexpr float kWireCooldown_ = 3.0f; // 10秒
+
+	// HUD用に使うなら public: に getter 追加（後で画像表示に使う）
+public:
+	float GetWireCooldown() const { return wireCooldownTimer_; }
+	float GetWireCooldownMax() const { return kWireCooldown_; }
+	bool IsWireReady() const { return wireCooldownTimer_ <= 0.0f; }
+	int GetAmmo() const { return ammo_; }
+	int GetMaxAmmo() const { return 10; }
 };

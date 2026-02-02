@@ -93,6 +93,37 @@ inline bool IntersectPlaneZ(const Ray& ray, float zPlane, KamataEngine::Vector3&
 	return true;
 }
 
+inline void DrawWireCooldownNumber(float valueSec, const KamataEngine::Vector2& pos, std::array<KamataEngine::Sprite*, 10>& digitSpr, KamataEngine::Sprite* dotSpr) {
+	// 0.0未満は0に
+	if (valueSec < 0.0f)
+		valueSec = 0.0f;
+
+	// 1桁秒 + 小数1桁 だけ表示（例: 9.8）
+	// 10秒クール想定なので seconds は 0..9 で収まる
+	int seconds = (int)valueSec;
+	int tenths = (int)((valueSec - (float)seconds) * 10.0f);
+
+	seconds = std::clamp(seconds, 0, 9);
+	tenths = std::clamp(tenths, 0, 9);
+
+	// 位置
+	float x = pos.x;
+	float y = pos.y;
+
+	// 秒
+	digitSpr[seconds]->SetPosition({x, y});
+	digitSpr[seconds]->Draw();
+
+	// .
+	x += 26.0f; // 文字間隔（見た目で調整）
+	dotSpr->SetPosition({x, y});
+	dotSpr->Draw();
+
+	// 小数
+	x += 18.0f;
+	digitSpr[tenths]->SetPosition({x, y});
+	digitSpr[tenths]->Draw();
+}
 
 } // namespace
 
@@ -238,7 +269,15 @@ void GameScene::Initialize() {
 
 	// --- MapChip ---
 	mapChipField_ = new MapChipField();
-	mapChipField_->LoadMapChipCsv("./Resources/blocks.csv");
+
+	const char* csv = "./Resources/stage1.csv";
+	if (stageIndex_ == 1)
+		csv = "./Resources/stage2.csv";
+	if (stageIndex_ == 2)
+		csv = "./Resources/stage3.csv";
+
+	mapChipField_->LoadMapChipCsv(csv);
+
 
 	// --- Player ---
 	player_ = new Player();
@@ -352,13 +391,33 @@ void GameScene::Initialize() {
 		goalWT_.TransferMatrix();
 	}
 
-	SpawnEnemyGridByBlocks(30, 0, -18);
-	SpawnEnemyGridByBlocks(16, 0, -19);
-	SpawnEnemyGridByBlocks(13, 0, -19);
-	SpawnEnemyGridByBlocks(18, 0, -19);
-	SpawnEnemyGridByBlocks(40, 0, -17);
-	SpawnEnemyGridByBlocks(46, 0, -14);
-	SpawnEnemyGridByBlocks(50, 0, -17);
+	// Initialize() の敵スポーン部分をこうする
+	auto SpawnStageEnemies = [&]() {
+		if (stageIndex_ == 0) { // stage1.csv
+			SpawnEnemyGridByBlocks(30, 0, -18);
+			SpawnEnemyGridByBlocks(16, 0, -19);
+			SpawnEnemyGridByBlocks(13, 0, -19);
+			SpawnEnemyGridByBlocks(18, 0, -19);
+			SpawnEnemyGridByBlocks(40, 0, -17);
+			SpawnEnemyGridByBlocks(46, 0, -14);
+			SpawnEnemyGridByBlocks(50, 0, -17);
+			// ...
+		} else if (stageIndex_ == 1) { // stage2.csv
+			SpawnEnemyGridByBlocks(28, 0, -16);
+			SpawnEnemyGridByBlocks(54, 0, -12);
+			// ...
+		} else if (stageIndex_ == 2) { // stage3.csv
+			SpawnEnemyGridByBlocks(31, 0, -12);
+			SpawnEnemyGridByBlocks(41, 0, -17);
+			SpawnEnemyGridByBlocks(45, 0, -15);
+			SpawnEnemyGridByBlocks(49, 0, -17);
+			SpawnEnemyGridByBlocks(67, 0, -16);
+			SpawnEnemyGridByBlocks(69, 0, -14);
+			// ...
+		}
+	};
+
+	SpawnStageEnemies();
 
 	// --- Blocks生成 ---
 	GenerateBlocks();
@@ -438,6 +497,87 @@ void GameScene::Initialize() {
 	wireMarkerWT_.rotation_ = {0, 0, 0};
 	wireMarkerWT_.translation_ = {0, 0, 0};
 	wireMarkerActive_ = false;
+
+	// =========================
+	// Wire Cooldown UI
+	// =========================
+	wireTex_ = TextureManager::Load("./Resources/number/wire.png");
+	wireReadyTex_ = TextureManager::Load("./Resources/number/Ready.png");
+	wireDotTex_ = TextureManager::Load("./Resources/number/dot.png");
+	assert(wireTex_ != 0);
+	assert(wireReadyTex_ != 0);
+	assert(wireDotTex_ != 0);
+	// 0-9
+	for (int i = 0; i < 10; ++i) {
+		std::string path = "./Resources/number/" + std::to_string(i) + ".png";
+		wireDigitTex_[i] = TextureManager::Load(path.c_str());
+		assert(wireDigitTex_[i] != 0);
+	}
+
+	// ★表示位置をここで確定（未初期化対策）
+	wireUiBase_ = {40.0f, 40.0f};
+
+	// Sprites（Wire）
+	wireLabelSpr_ = Sprite::Create(wireTex_, wireUiBase_);
+	wireReadySpr_ = Sprite::Create(wireReadyTex_, wireUiBase_);
+	wireDotSpr_ = Sprite::Create(wireDotTex_, wireUiBase_);
+
+	for (int i = 0; i < 10; ++i) {
+		wireDigitSpr_[i] = Sprite::Create(wireDigitTex_[i], wireUiBase_);
+	}
+
+	// アンカー（左上基準）
+	wireLabelSpr_->SetAnchorPoint({0.0f, 0.0f});
+	wireReadySpr_->SetAnchorPoint({0.0f, 0.0f});
+	wireDotSpr_->SetAnchorPoint({0.0f, 0.0f});
+	for (auto* s : wireDigitSpr_) {
+		s->SetAnchorPoint({0.0f, 0.0f});
+	}
+
+	// サイズ（とりあえず固定でOK。あとで画像サイズに合わせて調整）
+	wireLabelSpr_->SetSize({140.0f, 32.0f});
+	wireReadySpr_->SetSize({140.0f, 32.0f});
+	wireDotSpr_->SetSize({16.0f, 32.0f});
+	for (auto* s : wireDigitSpr_) {
+		s->SetSize({24.0f, 32.0f});
+	}
+
+	// =========================
+	// Ammo UI
+	// =========================
+	ammoUiBase_ = {40.0f, 80.0f};
+
+	// ラベル（任意）
+	ammoLabelTex_ = TextureManager::Load("./Resources/number/ammo.png"); // 無いなら作る or 消してOK
+	ammoLabelSpr_ = Sprite::Create(ammoLabelTex_, ammoUiBase_);
+	ammoLabelSpr_->SetAnchorPoint({0.0f, 0.0f});
+	ammoLabelSpr_->SetSize({140.0f, 32.0f});
+
+	// "/"（任意）
+	ammoSlashTex_ = TextureManager::Load("./Resources/number/slash.png"); // 無いなら消してOK
+	ammoSlashSpr_ = Sprite::Create(ammoSlashTex_, ammoUiBase_);
+	ammoSlashSpr_->SetAnchorPoint({0.0f, 0.0f});
+	ammoSlashSpr_->SetSize({16.0f, 32.0f});
+
+	for (int i = 0; i < 10; ++i) {
+		std::string path = "./Resources/number/" + std::to_string(i) + ".png";
+		ammoDigitTex_[i] = TextureManager::Load(path.c_str());
+		assert(ammoDigitTex_[i] != 0);
+	}
+
+
+	for (int i = 0; i < 10; ++i) {
+		ammoCurDigitSpr_[i] = Sprite::Create(ammoDigitTex_[i], ammoUiBase_);
+		ammoMaxDigitSpr_[i] = Sprite::Create(ammoDigitTex_[i], ammoUiBase_);
+
+		ammoCurDigitSpr_[i]->SetAnchorPoint({0.0f, 0.0f});
+		ammoMaxDigitSpr_[i]->SetAnchorPoint({0.0f, 0.0f});
+
+		ammoCurDigitSpr_[i]->SetSize({24.0f, 32.0f});
+		ammoMaxDigitSpr_[i]->SetSize({24.0f, 32.0f});
+	}
+
+
 }
 
 // =========================
@@ -918,15 +1058,19 @@ void GameScene::Update() {
 
 	case Phase::kGameOver:
 		camera_.UpdateMatrix();
+
 		if (!playedGameOverBGM_) {
 			gameOverBGMPlayingId_ = Audio::GetInstance()->PlayWave(gameOverBGMHandle_, false);
 			playedGameOverBGM_ = true;
 		}
+
 		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
 			finished_ = true;
+			nextScene_ = NextScene::kRestart; // ★これが必須
+			// stageIndex_ は GameScene が持ってるので、そのままでOK
 		}
-
 		break;
+
 
 	case Phase::kFadeOut:
 		fade_->Update();
@@ -1178,6 +1322,99 @@ void GameScene::Draw() {
 		pauseBackTitle_->Draw();
 	}
 
+	// Sprite::PreDraw(...) の後あたりでOK
+
+	// =========================
+	// Wire Cooldown UI draw
+	// =========================
+	if (player_ && !player_->IsDead()) {
+
+		// 「ワイヤー:」ラベル
+		if (wireLabelSpr_) {
+			wireLabelSpr_->SetPosition(wireUiBase_);
+			wireLabelSpr_->Draw();
+		}
+
+		// 数字/READY の表示位置（ラベルの右）
+		KamataEngine::Vector2 numPos = {wireUiBase_.x + 160.0f, wireUiBase_.y + 0.0f};
+
+		float cd = player_->GetWireCooldown(); // Player.h の getter（さっき追加したやつ）
+
+		if (cd <= 0.0f) {
+			// READY
+			if (wireReadySpr_) {
+				wireReadySpr_->SetPosition(numPos);
+				wireReadySpr_->Draw();
+			}
+		} else {
+			// 数字（9.8 みたいに）
+			if (wireDotSpr_) {
+				DrawWireCooldownNumber(cd, numPos, wireDigitSpr_, wireDotSpr_);
+			}
+		}
+	}
+
+// =========================
+	// Ammo UI draw
+	// =========================
+	if (player_ && !player_->IsDead()) {
+
+		// ラベル
+		if (ammoLabelSpr_) {
+			ammoLabelSpr_->SetPosition(ammoUiBase_);
+			ammoLabelSpr_->Draw();
+		}
+
+		// 数字の開始位置（ラベルの右）
+		KamataEngine::Vector2 p = {ammoUiBase_.x + 160.0f, ammoUiBase_.y};
+
+		int cur = player_->GetAmmo();
+		int max = player_->GetMaxAmmo();
+
+		cur = std::clamp(cur, 0, 999);
+		max = std::clamp(max, 0, 999);
+
+		// ★Sprite配列を受け取るようにする
+		auto DrawInt3 = [&](int v, KamataEngine::Vector2 pos, std::array<KamataEngine::Sprite*, 10>& digitSpr) {
+			int h = (v / 100) % 10;
+			int t = (v / 10) % 10;
+			int o = v % 10;
+
+			float x = pos.x;
+			float y = pos.y;
+
+			if (v >= 100) {
+				digitSpr[h]->SetPosition({x, y});
+				digitSpr[h]->Draw();
+				x += 24.0f;
+			}
+			if (v >= 10) {
+				digitSpr[t]->SetPosition({x, y});
+				digitSpr[t]->Draw();
+				x += 24.0f;
+			}
+
+			digitSpr[o]->SetPosition({x, y});
+			digitSpr[o]->Draw();
+			x += 24.0f;
+
+			return x;
+		};
+
+		// 現在弾数
+		float x = DrawInt3(cur, p, ammoCurDigitSpr_);
+
+		// "/"
+		if (ammoSlashSpr_) {
+			ammoSlashSpr_->SetPosition({x + 8.0f, p.y});
+			ammoSlashSpr_->Draw();
+		}
+		x += 24.0f;
+
+		// 最大弾数
+		DrawInt3(max, {x + 8.0f, p.y}, ammoMaxDigitSpr_);
+	}
+
 	Sprite::PostDraw();
 
 	// --- Fade ---
@@ -1261,6 +1498,34 @@ GameScene::~GameScene() {
 	// bullet model
 	delete bulletModel_;
 	bulletModel_ = nullptr;
+
+	// wire UI
+	delete wireLabelSpr_;
+	wireLabelSpr_ = nullptr;
+	delete wireReadySpr_;
+	wireReadySpr_ = nullptr;
+	delete wireDotSpr_;
+	wireDotSpr_ = nullptr;
+	for (auto& s : wireDigitSpr_) {
+		delete s;
+		s = nullptr;
+	}
+
+	// Ammo UI
+	delete ammoLabelSpr_;
+	ammoLabelSpr_ = nullptr;
+
+	delete ammoSlashSpr_;
+	ammoSlashSpr_ = nullptr;
+
+	for (auto& s : ammoCurDigitSpr_) {
+		delete s;
+		s = nullptr;
+	}
+	for (auto& s : ammoMaxDigitSpr_) {
+		delete s;
+		s = nullptr;
+	}
 }
 
 // =========================

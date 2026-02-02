@@ -60,6 +60,8 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	guideVisible_ = true;
 	hasGuideTarget_ = false;
 
+	wireCooldownTimer_ = 0.0f; // 最初は即使用可能
+
 
 }
 
@@ -76,23 +78,58 @@ void Player::Update(float deltaTime) {
 		bulletCooldown_ = std::max(0.0f, bulletCooldown_ - deltaTime);
 	}
 
+	// Rでリロード（押した瞬間）
+	if (KamataEngine::Input::GetInstance()->TriggerKey(DIK_R)) {
+		reloading_ = true;
+		reloadTimer_ = kReloadTime_;
+		isCharging_ = false; // チャージ中なら中断
+		chargeReady_ = false;
+		chargeTime_ = 0.0f;
+		chargePulse_ = 0.0f;
+	}
+
+	// リロード中
+	if (reloading_) {
+		reloadTimer_ -= deltaTime;
+		if (reloadTimer_ <= 0.0f) {
+			reloadTimer_ = 0.0f;
+			reloading_ = false;
+			ammo_ = kMaxAmmo_;
+		}
+	}
+
+	// ワイヤークールタイム
+	if (wireCooldownTimer_ > 0.0f) {
+		wireCooldownTimer_ = std::max(0.0f, wireCooldownTimer_ - deltaTime);
+	}
+
+
 	// --------------------
 	// E：短押し=通常 / 長押し=チャージ（離した瞬間に発射）
 	// --------------------
-	const bool eDown = KamataEngine::Input::GetInstance()->IsTriggerMouse(0);
-	const bool eTrigger = KamataEngine::Input::GetInstance()->IsPressMouse(0);
+	// 押してる間（Down）
+	const bool eDown = KamataEngine::Input::GetInstance()->IsPressMouse(0);
 
-	// Release（離した瞬間）を自前で作る
+	// 押した瞬間（Trigger）
+	const bool eTrigger = KamataEngine::Input::GetInstance()->IsTriggerMouse(0);
+
+	// 離した瞬間（Release）
 	static bool prevEDown = false;
 	const bool eRelease = (!eDown && prevEDown);
 	prevEDown = eDown;
 
+
 	// 押し始め：チャージ開始
-	if (eTrigger && bulletCooldown_ <= 0.0f) {
+	// 押し始め：チャージ開始（弾が1発以上、リロード中じゃない）
+	if (eTrigger && bulletCooldown_ <= 0.0f && !reloading_ && ammo_ > 0) {
 		isCharging_ = true;
 		chargeTime_ = 0.0f;
 		chargePulse_ = 0.0f;
+		chargeReady_ = false;
+		chargeReadyFlash_ = 0.0f;
+		chargePopTimer_ = 0.0f;
 	}
+
 
 	// 押してる間：溜める
 	if (isCharging_ && eDown) {
@@ -114,23 +151,42 @@ void Player::Update(float deltaTime) {
 	}
 
 	// 離した瞬間：発射
+	// 離した瞬間：発射
 	if (isCharging_ && eRelease) {
-		const bool isChargeShot = (chargeTime_ >= kChargeThreshold_);
-		float power01 = isChargeShot ? 1.0f : 0.0f;
 
-		SpawnBulletWithPower(power01);
-		bulletCooldown_ = kBulletCool;
+		// リロード中は撃てない
+		if (reloading_) {
+			isCharging_ = false;
+			chargeTime_ = 0.0f;
+			chargePulse_ = 0.0f;
+			chargeReady_ = false;
+			chargeReadyFlash_ = 0.0f;
+			chargePopTimer_ = 0.0f;
+		} else {
+			const bool isChargeShot = (chargeTime_ >= kChargeThreshold_);
 
-		// ★発射反動
-		shootRecoilTimer_ = kShootRecoilTime_;
+			// 通常1発、チャージは5発消費
+			const int cost = isChargeShot ? 5 : 1;
 
-		// リセット
-		isCharging_ = false;
-		chargeTime_ = 0.0f;
-		chargePulse_ = 0.0f;
-		chargeReady_ = false;
-		chargeReadyFlash_ = 0.0f;
-		chargePopTimer_ = 0.0f;
+			// 足りないなら撃てない（自動リロードしたいならここで StartReload してもOK）
+			if (ammo_ >= cost) {
+				float power01 = isChargeShot ? 1.0f : 0.0f;
+
+				SpawnBulletWithPower(power01);
+				ammo_ -= cost;
+
+				bulletCooldown_ = kBulletCool;
+				shootRecoilTimer_ = kShootRecoilTime_;
+			}
+
+			// リセット（撃てなくてもチャージは終わる仕様）
+			isCharging_ = false;
+			chargeTime_ = 0.0f;
+			chargePulse_ = 0.0f;
+			chargeReady_ = false;
+			chargeReadyFlash_ = 0.0f;
+			chargePopTimer_ = 0.0f;
+		}
 	}
 
 	// 無敵点滅タイマー
@@ -1036,7 +1092,10 @@ void Player::UpdateBullets(float dt, const std::list<Enemy*>& enemies) {
 		}
 
 		// 移動
+		// 移動
 		b.wt.translation_.x += b.vel.x * dt;
+		b.wt.translation_.y += b.vel.y * dt;
+
 
 		// ----------------------------
 		// ① マップヒット判定（Indexも取る）
@@ -1150,35 +1209,38 @@ void Player::SpawnBulletWithPower(float power01) {
 
 	bullets_.emplace_back();
 	Bullet& b = bullets_.back();
-
 	b.alive = true;
 
-	// 強さで寿命・サイズ・速度を変える（通常=0 / チャージ=1）
 	b.life = kBulletLife + power01 * 0.8f;
 
 	b.wt.Initialize();
 
 	Vector3 p = worldTransform_.translation_;
-	float dir = (lrDirection_ == LRDirection::kRight) ? +1.0f : -1.0f;
 
-	// 発射位置
-	p.x += dir * (kWidth * 0.65f);
-	p.y += 0.2f;
+	// ★狙い方向（長さ0対策）
+	Vector3 d = aimDir_;
+	float len2 = d.x * d.x + d.y * d.y;
+	if (len2 < 1e-6f) {
+		d = (lrDirection_ == LRDirection::kRight) ? Vector3{1, 0, 0} : Vector3{-1, 0, 0};
+	}
+
+	// 発射位置：プレイヤーから少し前へ
+	p.x += d.x * (kWidth * 0.65f);
+	p.y += d.y * (kWidth * 0.65f);
+	p.y += 0.2f; // ちょい上げ（好み）
 
 	b.wt.translation_ = p;
 
-	// サイズ（通常小・チャージ大）
-	float s = 0.35f + power01 * 0.65f; // 0.35 → 1.0
+	float s = 0.35f + power01 * 0.65f;
 	b.wt.scale_ = {s, s, s};
 	b.wt.rotation_ = {0, 0, 0};
 
-	// 速度（チャージの方が速い）
 	float spd = kBulletSpeed + power01 * 10.0f;
-	b.vel = {dir * spd, 0.0f, 0.0f};
 
-	// power01 が 1 に近いならチャージ弾扱い
+	// ★ここが本命：XY方向に飛ばす
+	b.vel = {d.x * spd, d.y * spd, 0.0f};
+
 	const bool isCharge = (power01 >= 0.999f);
-
 	b.pierce = isCharge;
 	b.pierceLeft = isCharge ? kChargePierceCount_ : 0;
 	b.hitSet.clear();
@@ -1187,23 +1249,35 @@ void Player::SpawnBulletWithPower(float power01) {
 	b.wt.TransferMatrix();
 }
 
+
 bool Player::GetBulletHitMapInfo(const Bullet& b, IndexSet& outIdx, MapChipType& outType) const {
-	if (!mapChipField_) {
+	if (!mapChipField_)
 		return false;
-	}
 
 	static constexpr float kBulletBaseScale = 0.35f;
 	float half = kBulletHalf * (b.wt.scale_.x / kBulletBaseScale);
 
-	float dir = (b.vel.x >= 0.0f) ? +1.0f : -1.0f;
+	// ★進行方向（XY）
+	Vector3 v = {b.vel.x, b.vel.y, 0.0f};
+	float len2 = v.x * v.x + v.y * v.y;
+	if (len2 < 1e-6f)
+		return false;
+	Vector3 dirN = MyMath::Normalize3(v);
 
+	// 先端
 	Vector3 tip = b.wt.translation_;
-	tip.x += dir * half;
+	tip.x += dirN.x * half;
+	tip.y += dirN.y * half;
 
-	Vector3 tipUp = tip;
-	tipUp.y += half * 0.6f;
-	Vector3 tipDn = tip;
-	tipDn.y -= half * 0.6f;
+	// ★太さ対策：進行方向に直交するベクトル（左手座標でも2Dなら同じでOK）
+	Vector3 n = {-dirN.y, dirN.x, 0.0f};
+
+	Vector3 tipL = tip;
+	tipL.x += n.x * (half * 0.6f);
+	tipL.y += n.y * (half * 0.6f);
+	Vector3 tipR = tip;
+	tipR.x -= n.x * (half * 0.6f);
+	tipR.y -= n.y * (half * 0.6f);
 
 	auto check = [&](const Vector3& pos) -> bool {
 		IndexSet idx = mapChipField_->GetMapChipIndexByPosition(pos);
@@ -1218,18 +1292,27 @@ bool Player::GetBulletHitMapInfo(const Bullet& b, IndexSet& outIdx, MapChipType&
 
 	if (check(tip))
 		return true;
-	if (check(tipUp))
+	if (check(tipL))
 		return true;
-	if (check(tipDn))
+	if (check(tipR))
 		return true;
 
 	return false;
 }
 
 void Player::StartWireTo(const KamataEngine::Vector3& target) {
+	// ★クール中は発動しない
+	if (wireCooldownTimer_ > 0.0f) {
+		return;
+	}
+
 	wireTarget_ = target;
 	wireActive_ = true;
+
+	// ★発動した瞬間にクール開始（10秒）
+	wireCooldownTimer_ = kWireCooldown_;
 }
+
 
 void Player::UpdateWire(float dt) {
 	if (!wireActive_) {
@@ -1482,6 +1565,7 @@ void Player::UpdateWireGuideByMouseRay(const Ray& mouseRay) {
 		return;
 	}
 	dir = MyMath::Normalize3(dir);
+	aimDir_ = dir;
 
 	// “届く距離” = セルサイズ×10（StartWireByMouseRay と同じルール）
 	Rect r00 = mapChipField_->GetRectByIndex(0, 0);

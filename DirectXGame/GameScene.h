@@ -255,6 +255,34 @@ public:
 	KamataEngine::WorldTransform wireMarkerWT_;
 	bool wireMarkerActive_ = false;
 
+// GameScene.h
+
+	// --- wire cooldown UI ---
+	uint32_t wireTex_ = 0;
+	uint32_t wireReadyTex_ = 0;
+	uint32_t wireDotTex_ = 0;
+	std::array<uint32_t, 10> wireDigitTex_{};
+
+	KamataEngine::Sprite* wireLabelSpr_ = nullptr;
+	KamataEngine::Sprite* wireReadySpr_ = nullptr;
+	KamataEngine::Sprite* wireDotSpr_ = nullptr;
+	std::array<KamataEngine::Sprite*, 10> wireDigitSpr_{};
+
+	KamataEngine::Vector2 wireUiBase_ = {40.0f, 40.0f}; // 表示位置（左上）
+
+
+	// --- Ammo UI ---
+	uint32_t ammoLabelTex_ = 0;
+	uint32_t ammoSlashTex_ = 0;
+	uint32_t ammoDigitTex_[10]{};
+
+	KamataEngine::Sprite* ammoLabelSpr_ = nullptr; // "AMMO" みたいなラベル画像（任意）
+	KamataEngine::Sprite* ammoSlashSpr_ = nullptr; // "/"（任意）
+
+	std::array<KamataEngine::Sprite*, 10> ammoCurDigitSpr_{};
+	std::array<KamataEngine::Sprite*, 10> ammoMaxDigitSpr_{};
+
+	KamataEngine::Vector2 ammoUiBase_{40.0f, 80.0f}; // 表示位置（wireの下あたり）
 
 public:
 	// -----------------------------
@@ -279,6 +307,10 @@ public:
 
 	NextScene GetNextScene() const { return nextScene_; }
 
+	// GameScene.h（public に追加）
+	int GetStageIndex() const { return stageIndex_; }
+
+
 	NextScene nextScene_ = NextScene::kNone;
 
 	// -----------------------------
@@ -291,4 +323,10 @@ public:
 	void UpdateBlockBreakPieces(float dt);
 	void BreakChargeBlock(uint32_t x, uint32_t y);
 	std::vector<IndexSet> ConsumeBrokenChargeBlocks();
+
+	// GameScene.h（public）
+	void SetStageIndex(int stageIndex) { stageIndex_ = stageIndex; }
+
+	// GameScene.h（private）
+	int stageIndex_ = 0;
 };

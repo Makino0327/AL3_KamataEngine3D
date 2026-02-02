@@ -20,10 +20,16 @@ void ChangeScene() {
 		if (titleScene && titleScene->IsFinished()) {
 			scene = Scene::kGame;
 
+			// ★修正手順1：削除する前に、必要な情報（ステージ番号）を一時保存する
+			int nextStageIndex = titleScene->GetSelectedStage();
+
+			// ★修正手順2：用済みになったので削除する
 			delete titleScene;
 			titleScene = nullptr;
 
+			// ★修正手順3：新しいシーンを作って、保存しておいた情報を渡す
 			gameScene = new GameScene();
+			gameScene->SetStageIndex(nextStageIndex); // 変数から渡す
 			gameScene->Initialize();
 		}
 		break;
@@ -31,25 +37,27 @@ void ChangeScene() {
 	case Scene::kGame:
 		if (gameScene && gameScene->IsFinished()) {
 
-			if (gameScene->GetNextScene() == NextScene::kTitle) {
+			// ★修正：削除前に現在のステージを退避
+			int keepStageIndex = gameScene->GetStageIndex();
+			NextScene next = gameScene->GetNextScene();
 
-				delete gameScene;
-				gameScene = nullptr;
+			delete gameScene;
+			gameScene = nullptr;
 
+			if (next == NextScene::kTitle) {
 				scene = Scene::kTitle;
 				titleScene = new TitleScene();
 				titleScene->Initialize();
-
 			} else {
-				delete gameScene;
-				gameScene = nullptr;
-
+				// ★Restart（またはそれ以外） → 同じステージで再生成
 				scene = Scene::kGame;
 				gameScene = new GameScene();
+				gameScene->SetStageIndex(keepStageIndex); // ★ここが本命
 				gameScene->Initialize();
 			}
 		}
 		break;
+
 	}
 }
 
