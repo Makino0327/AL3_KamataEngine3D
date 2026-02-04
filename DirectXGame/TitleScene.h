@@ -1,4 +1,6 @@
 #pragma once
+#define NOMINMAX
+
 #include "KamataEngine.h"
 #include <vector>
 #include <cmath>
@@ -21,6 +23,7 @@ enum class Phase {
 	kGameClear,
 	kGameOver, 
 	kFadeOut, // フェードアウト中
+	kStageSelect,
 };
 
 
@@ -81,6 +84,20 @@ private:
 	KamataEngine::Model* spaceModel_ = nullptr;
 	KamataEngine::WorldTransform spaceWT_;
 
+	// モデル・テクスチャ
+	uint32_t stageTex_[3]{}; // 各ステージのサムネ(画像)（同じでもOK）
+
+	// 3枚の板
+	KamataEngine::WorldTransform stageWT_[3]{};
+
+	// 選択状態
+	int stageCursor_ = 0;
+
+	// 演出
+	float stageSelectT_ = 0.0f; // 0→1
+	bool stageSelectAppearing_ = false;
+	int selectedStage_ = 0;
+
 public:
 	void Initialize();
 	void Update();
@@ -88,4 +105,8 @@ public:
 	~TitleScene();
 	bool IsFinished() const { return finished_; }
 	void GenerateBlocksForTitle_();
+	// TitleScene.h
+	int GetSelectedStage() const { return selectedStage_; }
+
+
 };

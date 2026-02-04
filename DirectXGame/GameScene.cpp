@@ -1,718 +1,1155 @@
 #include "GameScene.h"
 #include "imgui.h"
+
+#define NOMINMAX
 #include <Windows.h>
+
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
+
+// ※ time(nullptr) を使うなら <ctime> を入れる
+#include <ctime>
 
 using namespace KamataEngine;
 
+bool IsAABBOverlap(const AABB& a, const AABB& b) { return (a.min.x <= b.max.x && a.max.x >= b.min.x) && (a.min.y <= b.max.y && a.max.y >= b.min.y) && (a.min.z <= b.max.z && a.max.z >= b.min.z); }
+
+namespace {
+
+// -------------------------
+// 定数（見た目/演出）
+// -------------------------
+constexpr float kFixedDeltaTime = 1.0f / 60.0f;
+
+// HPバー描画用
+constexpr Vector2 kHpFrameSize = {240.0f, 16.0f};
+constexpr float kHpFramePadding = 2.0f;
+
+// 被弾演出
+constexpr float kHpShakeTime = 0.25f;
+constexpr float kHpFlashTime = 0.15f;
+constexpr float kHpDelayTime = 0.25f;
+constexpr float kHpDamageSpeed = 1.5f;
+
+// デバッグカメラ切替
+constexpr int kDebugToggleKey = DIK_T;
+
+// 画面に見せたいタイル枚数（カメラ可動範囲用）
+constexpr int kVisibleTilesX = 32;
+constexpr int kVisibleTilesY = 9;
+
+// 画面余白（カメラ可動範囲用）
+constexpr float kMarginXMul = 3.5f; // 3.5マス
+constexpr float kMarginYMul = 1.0f; // 1マス
+
+// キルライン（マップ最下端から何枚下に落ちたら死ぬ）
+constexpr float kKillOffsetTiles = 2.0f;
+
+inline float Clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
+
+
+inline Ray MakeMouseRayLH(const KamataEngine::Camera& cam, float mx, float my, float w, float h) {
+	// 画面→NDC
+	float x = (2.0f * mx / w) - 1.0f;
+	float y = 1.0f - (2.0f * my / h);
+
+	KamataEngine::Vector4 nearNdc{x, y, 0.0f, 1.0f};
+	KamataEngine::Vector4 farNdc{x, y, 1.0f, 1.0f};
+
+	// VP逆
+	KamataEngine::Matrix4x4 vp = MyMath::Mul(cam.matView, cam.matProjection);
+	KamataEngine::Matrix4x4 invVP = MyMath::Inverse(vp);
+
+	// ★Vector4×Matrix4x4
+	KamataEngine::Vector4 nearW = MyMath::Transform4(nearNdc, invVP);
+	KamataEngine::Vector4 farW = MyMath::Transform4(farNdc, invVP);
+
+	// 透視除算
+	nearW.x /= nearW.w;
+	nearW.y /= nearW.w;
+	nearW.z /= nearW.w;
+	farW.x /= farW.w;
+	farW.y /= farW.w;
+	farW.z /= farW.w;
+
+	KamataEngine::Vector3 o{nearW.x, nearW.y, nearW.z};
+	KamataEngine::Vector3 f{farW.x, farW.y, farW.z};
+
+	KamataEngine::Vector3 d{f.x - o.x, f.y - o.y, f.z - o.z};
+	d = MyMath::Normalize3(d);
+
+	return {o, d};
+}
+
+inline bool IntersectPlaneZ(const Ray& ray, float zPlane, KamataEngine::Vector3& outHit) {
+	if (std::fabs(ray.dir.z) < 1e-5f)
+		return false;
+	float t = (zPlane - ray.origin.z) / ray.dir.z;
+	if (t < 0.0f)
+		return false;
+
+	outHit = {ray.origin.x + ray.dir.x * t, ray.origin.y + ray.dir.y * t, ray.origin.z + ray.dir.z * t};
+	return true;
+}
+
+inline void DrawWireCooldownNumber(float valueSec, const KamataEngine::Vector2& pos, std::array<KamataEngine::Sprite*, 10>& digitSpr, KamataEngine::Sprite* dotSpr) {
+	// 0.0未満は0に
+	if (valueSec < 0.0f)
+		valueSec = 0.0f;
+
+	// 1桁秒 + 小数1桁 だけ表示（例: 9.8）
+	// 10秒クール想定なので seconds は 0..9 で収まる
+	int seconds = (int)valueSec;
+	int tenths = (int)((valueSec - (float)seconds) * 10.0f);
+
+	seconds = std::clamp(seconds, 0, 9);
+	tenths = std::clamp(tenths, 0, 9);
+
+	// 位置
+	float x = pos.x;
+	float y = pos.y;
+
+	// 秒
+	digitSpr[seconds]->SetPosition({x, y});
+	digitSpr[seconds]->Draw();
+
+	// .
+	x += 26.0f; // 文字間隔（見た目で調整）
+	dotSpr->SetPosition({x, y});
+	dotSpr->Draw();
+
+	// 小数
+	x += 18.0f;
+	digitSpr[tenths]->SetPosition({x, y});
+	digitSpr[tenths]->Draw();
+}
+
+} // namespace
+
+// =========================
+// 当たり判定（Player vs Enemies）
+// =========================
 void GameScene::CheckAllCollisions() {
 
-#pragma region 自キャラと敵キャラの当たり判定
-	{
-		// 判定対象は2つ必要
-		AABB aabb1, aabb2;
+	if (!player_) {
+		return;
+	}
 
-		// 自キャラのAABB
-		aabb1 = player_->GetAABB();
+	const AABB playerAabb = player_->GetAABB();
 
-		// 敵キャラとの総当たり判定
-		for (Enemy* enemy : enemies_) {
-			// 敵のAABB
-			aabb2 = enemy->GetAABB();
+	for (Enemy* enemy : enemies_) {
+		if (!enemy) {
+			continue;
+		}
 
-			// AABB同士の交差判定
-			if (IsCollisionAABB(aabb1, aabb2)) {
-				player_->OnCollision();
-				enemy->OnCollision(player_);
+		// ★追加：死亡中・死亡済みは無視
+		if (enemy->IsDead() || enemy->IsDying()) {
+			continue;
+		}
+
+		const AABB enemyAabb = enemy->GetAABB();
+		if (IsCollisionAABB(playerAabb, enemyAabb)) {
+			player_->OnCollision();
+			enemy->OnCollision(player_);
+		}
+	}
+	// =========================
+	// 当たり判定（Enemy vs Enemy）
+	// =========================
+	for (int iter = 0; iter < 2; ++iter) { // ★2回解決で安定
+		for (auto itA = enemies_.begin(); itA != enemies_.end(); ++itA) {
+			Enemy* a = *itA;
+			if (!a)
+				continue;
+			if (a->IsDead() || a->IsDying())
+				continue;
+
+			auto itB = std::next(itA);
+			for (; itB != enemies_.end(); ++itB) {
+				Enemy* b = *itB;
+				if (!b)
+					continue;
+				if (b->IsDead() || b->IsDying())
+					continue;
+
+				if (!a->CanHitEnemy() || !b->CanHitEnemy())
+					continue;
+
+				AABB aa = a->GetAABB();
+				AABB bb = b->GetAABB();
+
+				// ★接触もOKにする
+				if (!IsAABBOverlap(aa, bb))
+					continue;
+
+				// ---- X方向の食い込み量（小さい方が実際の押し戻し量）----
+				float pen1 = aa.max.x - bb.min.x; // aが左側っぽい時の食い込み
+				float pen2 = bb.max.x - aa.min.x; // bが左側っぽい時の食い込み
+				float penetration = std::min(pen1, pen2);
+
+				// ほぼゼロなら何もしない（ノイズ対策）
+				if (penetration <= 0.0f)
+					continue;
+
+				const float eps = 0.02f;
+				float push = (penetration * 0.5f) + eps;
+
+				// 中心で左右判定して、互いに押し戻す
+				float acx = (aa.min.x + aa.max.x) * 0.5f;
+				float bcx = (bb.min.x + bb.max.x) * 0.5f;
+
+				if (acx < bcx) {
+					a->Nudge({-push, 0.0f, 0.0f});
+					b->Nudge({+push, 0.0f, 0.0f});
+				} else {
+					a->Nudge({+push, 0.0f, 0.0f});
+					b->Nudge({-push, 0.0f, 0.0f});
+				}
+
+				// ★反転（壁と同じ）
+				a->OnCollision(player_);
+				b->OnCollision(player_);
+
+				a->StartEnemyHitCooldown(0.12f);
+				b->StartEnemyHitCooldown(0.12f);
 			}
 		}
 	}
-
-#pragma endregion
-
 }
 
+// =========================
+// 初期化
+// =========================
 void GameScene::Initialize() {
-	// 初期状態をプレイフェーズに
+
+	// 初期状態
 	phase_ = Phase::kCountdown;
 
-	// デバックカメラの生成
+	// --- 乱数 ---
+	srand(static_cast<unsigned int>(time(nullptr)));
+
+	// --- DebugCamera ---
 	debugCamera_ = new DebugCamera(1280, 720);
-	// カメラの初期化
+
+	// --- Camera ---
 	camera_.Initialize();
-	// 3Dモデルデータの生成
+
+	// --- Models ---
 	model_ = Model::Create();
-	playerModel_ = Model::Create();
-	// スカイドームの生成
-	skydome_ = new Skydome();
-	// skydomeの初期化
-	skydome_->Initialize();
-	// マップチップフィールドの生成
-	mapChipField_ = new MapChipField();
 
-	// Initialize 内
-	treeModel_ = Model::CreateFromOBJ("tree", true);
-	uint32_t treeTex = TextureManager::Load("./Resources/tree/tree.png"); // 画像あるなら
+	// プレイヤー/敵/ブロック用
+	playerModel_ = Model::CreateFromOBJ("grassBlock", true);
+	enemyModel_ = Model::CreateFromOBJ("grassBlock", true);
+	cubeModel_ = Model::CreateFromOBJ("cube", true);
+	grassModel_ = Model::CreateFromOBJ("grassBlock", true);
+	bulletModel_ = Model::CreateFromOBJ("bullet", true);
 
+	// パーティクル用
+	particleModel_ = Model::CreateFromOBJ("particle", true);
 
-	srand(static_cast<unsigned int>(time(nullptr)));
+	// --- Texture ---
+	skyDomeTexture_ = TextureManager::Load("./Resources/skyDome.png");
 
-	const Vector3 posList[] = {
-	    {28.0f, 0.0f, 1.0f},
-	    {50.0f, 0.0f, 1.0f},
-        {102.0f, 0.0f, 1.0f},
-        {130.0f, 0.0f, 1.0f},
-        {170.0f, 0.0f, 1.0f},
-        {200.0f, 0.0f, 1.0f},
-        {250.0f, 0.0f, 1.0f},
-	    {300.0f, 0.0f, 1.0f},
-        {350.0f, 0.0f, 1.0f},
-        {400.0f, 0.0f, 1.0f},
-        {450.0f, 0.0f, 1.0f},
-        {500.0f, 0.0f, 1.0f},
-        {550.0f, 0.0f, 1.0f},
-        {600.0f, 0.0f, 1.0f},
-	};
-	for (auto& p : posList) {
-		auto* t = new Scenery();
-		t->Initialize(treeModel_, &camera_, p, {1.0f, 15.0f, 15.0f});
-		t->SetTexture(treeTex);
+	// 敵のテクスチャ（今は仮でGameClearを使ってる状態を尊重）
+	enemyTex = TextureManager::Load("./Resources/enemy.png");
 
-		   // ★ 90° or 270° に限定
-		int r = rand() % 2;
-		float yaw = (r == 0) ? std::numbers::pi_v<float> / 2.0f  // 90°
-		                     : std::numbers::pi_v<float> * 1.5f; // 270°
-		t->SetYaw(yaw);
+	blockTexGrass_ = TextureManager::Load("./Resources/grassBlock/grassBlock.png");
 
-		trees_.push_back(t);
-	}
+	blockTexW_ = TextureManager::Load("./Resources/wBlock.png");
 
-	 // モデル＆テクスチャ読込
-	grassModel_ = Model::CreateFromOBJ("grass", true);
-
-	// PNG を使う場合（無いならこの行は外す）
-	grassTex_ = TextureManager::Load("./Resources/grass/grass.png");
-
-	// 乱数は一度だけ初期化（すでにどこかでやっていれば不要）
-	srand(static_cast<unsigned int>(time(nullptr)));
-
-	// 置き場所（必要に応じて調整）――“木のそば”にサンプル配置
-	const Vector3 grassPosList[] = {
-	    {28.0f, 0.0f, 0.5f},
-	    {48.0f, 0.0f, 0.5f},
-	    {68.0f, 0.0f, 0.5f},
-        {98.0f, 0.0f, 0.5f},
-        {108.0f, 0.0f, 0.5f},
-        {120.0f, 0.0f, 0.5f},
-		{156.0f, 0.0f, 0.5f},
-        {208.0f, 0.0f, 0.5f},
-        {233.0f, 0.0f, 0.5f},
-        {286.0f, 0.0f, 0.5f},
-        {299.0f, 0.0f, 0.5f},
-	    {310.0f, 0.0f, 0.5f},
-        {350.0f, 0.0f, 0.5f},
-        {366.0f, 0.0f, 0.5f},
-        {400.0f, 0.0f, 0.5f},
-	    {411.0f, 0.0f, 0.5f},
-        {500.0f, 0.0f, 0.5f},
-        {600.0f, 0.0f, 0.5f},
-        
-	};
-
-	for (const auto& p : grassPosList) {
-		Scenery* g = new Scenery();
-
-		// 草はやや小さめ（お好みで調整）
-		Vector3 s = {1.0f, 7.0f, 10.0f};
-		g->Initialize(grassModel_, &camera_, p, s);
-
-		// PNG を使う場合のみ
-		g->SetTexture(grassTex_);
-
-		// 向き：90° or 270°（要求通り）
-		int r = rand() % 2;
-		float yaw = (r == 0) ? std::numbers::pi_v<float> / 2.0f  // 90°
-		                     : std::numbers::pi_v<float> * 1.5f; // 270°
-		g->SetYaw(yaw);
-
-		// 必要なら微スケール差（任意。いらなければ削除）
-		// float k = 0.9f + (rand() % 21) * 0.01f; // 0.90〜1.10
-		// g->SetScale({s.x*k, s.y*k, s.z*k});
-
-		grasses_.push_back(g);
-	}
-
-	player_ = new Player();
-	// モデルとテクスチャは一度だけ作成
-	// いろんな位置を用意
-	std::vector<Vector3> enemyPositions = {
-	  
-	};
-
-	enemyModel_ = Model::CreateFromOBJ("dog", true);
-	uint32_t enemyTex = TextureManager::Load("./Resources/dog/Atlas_Monsters.png");
-	// （PNGを使うなら）
-	block_ = TextureManager::Load("./Resources/grassBlock/grassBlock.png");
-	blockTexGrass_ = block_; 
+	// 赤青ブロック
 	blockTexRed_ = TextureManager::Load("./Resources/cube/block_red.jpg");
 	blockTexBlue_ = TextureManager::Load("./Resources/cube/block_blue.jpg");
 
-	cubeModel_ = Model::CreateFromOBJ("cube", true);
+	// --- Skydome ---
+	skydome_ = new Skydome();
+	skydome_->Initialize();
+	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
 
-	for (const auto& pos : enemyPositions) {
-		Enemy* newEnemy = new Enemy();
-		newEnemy->Initialize(enemyModel_, &camera_, pos);
-		newEnemy->SetTexture(enemyTex);
-		enemies_.push_back(newEnemy);
-	}
+	// --- MapChip ---
+	mapChipField_ = new MapChipField();
 
-	// 位置は適当な例
-	// ブロックの要素数
-	const uint32_t kNumBlockVirtical = 10;
-	const uint32_t kNumBlockHorizontal = 20;
-	// テクスチャの読み込み
-	// ↓ キューブ → 草ブロックOBJに差し替え
-	model_ = Model::CreateFromOBJ("grassBlock", true);
+	const char* csv = "./Resources/stage1.csv";
+	if (stageIndex_ == 1)
+		csv = "./Resources/stage2.csv";
+	if (stageIndex_ == 2)
+		csv = "./Resources/stage3.csv";
 
-	
-
-	skyDomeTexture_ = TextureManager::Load("./Resources/skyDome.png");
-	// ★CSVはそのまま（OBJを渡さない！）
-	mapChipField_->LoadMapChipCsv("./Resources/blocks.csv");
-
-	// 要素数を設定する
-	worldTransformBlocks_.resize(kNumBlockVirtical);
-	for (uint32_t i = 0; i < kNumBlockVirtical; ++i) {
-		worldTransformBlocks_[i].resize(kNumBlockHorizontal);
-	}
-	// 座標をマップチップ番号で指定
-	Vector3 playerPosition = mapChipField_->GetMapChipPositionByIndex(1, 1);
-	playerModel_ = Model::CreateFromOBJ("cat", true);
-	playerPosition = {-30.0f, 13.0f, 0.0f};
-	particleModel_ = Model::CreateFromOBJ("particle", true);
-	// 仮の生成処理。後で条件つけて呼び出すようにする
+	mapChipField_->LoadMapChipCsv(csv);
 
 
-	// ▼カウントダウンOBJの読み込み
-	countModel3_ = Model::CreateFromOBJ("Count3", true);
-	countModel2_ = Model::CreateFromOBJ("Count2", true);
-	countModel1_ = Model::CreateFromOBJ("Count1", true);
-	countModelGO_ = Model::CreateFromOBJ("CountGO", true);
+	// --- Player ---
+	player_ = new Player();
 
-	countWT_.Initialize();
-	// 初期スケール（Blender実寸に応じて後で調整）
-	countWT_.scale_ = {3.0f, 3.0f, 3.0f};
+	// ※あなたのコードの「playerPositionを固定値にする」を尊重
+	Vector3 playerPosition = {8.0f, 12.0f, 0.0f};
 
-	player_->Initialize(playerModel_, &camera_, playerPosition); // ← テクスチャを敵に設定
-	player_->SetMapChipField(mapChipField_);      
-	player_->SetBlocksAreRed(blocksAreRed_); // ★これ忘れずに// プレイヤーにマップチップフィールドを設定
+	player_->Initialize(playerModel_, &camera_, playerPosition);
+	player_->SetMapChipField(mapChipField_);
+	player_->SetBlocksAreRed(blocksAreRed_);
+	player_->SetBulletModel(bulletModel_);
+
+	// --- DeathParticles ---
 	deathParticles_ = new DeathParticles();
 	deathParticles_->Initialize(playerPosition, particleModel_, &camera_);
 
-
-
-	// GameClear OBJ 読み込み（Resources/GameClear/GameClear.obj を想定）
-	gameClearModel_ = Model::CreateFromOBJ("GameClear", true); // 失敗時は nullptr
+	// --- GameClear ---
+	gameClearModel_ = Model::CreateFromOBJ("GameClear", true);
 	gameClearTex_ = TextureManager::Load("./Resources/GameClear/GameClear.png");
 	gameClearWT_.Initialize();
-
-	// とりあえず原点・等倍（回転は後で調整）
 	gameClearWT_.scale_ = {6.0f, 6.0f, 1.0f};
-	gameClearWT_.rotation_ = {0.0f, 0.0f, 0.0f}; // ※寝て見えたら x を +π/2 に
+	gameClearWT_.rotation_ = {0.0f, 0.0f, 0.0f};
 	gameClearWT_.translation_ = {0.0f, 0.0f, 0.0f};
-
-	// 行列初期転送（毎フレーム更新もします）
 	gameClearWT_.matWorld_ = MakeAffineMatrix(gameClearWT_.scale_, gameClearWT_.rotation_, gameClearWT_.translation_);
 	gameClearWT_.TransferMatrix();
 
-	// GameOverモデル読み込み
+	// --- GameOver ---
 	gameOverModel_ = Model::CreateFromOBJ("GameOver", true);
 	gameOverTex_ = TextureManager::Load("./Resources/GameOver/GameOver.png");
 	assert(gameOverModel_ && "GameOver obj load failed");
 
-	// 変換の初期化
 	gameOverWT_.Initialize();
-
-	// 初期位置・スケール（画面中央付近に大きめ表示）
-	gameOverWT_.translation_ = {-18.0f, 5.0f, 0.0f}; // y を高めに（カメラオフセットに合わせて後で調整）
+	gameOverWT_.translation_ = {-18.0f, 5.0f, 0.0f};
 	gameOverWT_.rotation_ = {std::numbers::pi_v<float> / 2.0f, 0.0f, 0.0f};
-
-	// Blender の実寸次第で調整：大き過ぎ/小さ過ぎたらここを変える
-	gameOverWT_.scale_ = {6.0f, 6.0f, 6.0f}; // 厚みは薄めでもOK
-
-	// 行列を転送
+	gameOverWT_.scale_ = {6.0f, 6.0f, 6.0f};
 	gameOverWT_.matWorld_ = MakeAffineMatrix(gameOverWT_.scale_, gameOverWT_.rotation_, gameOverWT_.translation_);
 	gameOverWT_.TransferMatrix();
 
-	// Initialize に追加
+	// --- CameraController ---
 	cameraController_.SetCamera(&camera_);
 	cameraController_.SetTarget(player_);
-
 	cameraController_.Reset();
 
-	// Map 実寸
+	// 可動範囲（左手座標系：MapChipFieldの定数を使用）
 	const float BW = MapChipField::kBlockWidth;
 	const float BH = MapChipField::kBlockHeight;
 	const uint32_t NX = MapChipField::kNumBlockHorizontal;
 	const uint32_t NY = MapChipField::kNumBlockVirtical;
 
-	// 画面に見せたいタイル枚数（整数がコツ）
-	const int visibleTilesX = 32;
-	const int visibleTilesY = 9;
+	const float halfW = (kVisibleTilesX * BW) * 0.5f;
+	const float halfH = (kVisibleTilesY * BH) * 0.5f;
 
-	const float halfW = (visibleTilesX * BW) * 0.5f;
-	const float halfH = (visibleTilesY * BH) * 0.5f;
+	const float marginX = kMarginXMul * BW;
+	const float marginY = kMarginYMul * BH;
 
-	// ── 右端ゴール領域（例：右端1タイルぶんの縦柱）。左手座標系
-	const float tileW = MapChipField::kBlockWidth;
-	const float tileH = MapChipField::kBlockHeight;
-	const uint32_t mapCols = MapChipField::kNumBlockHorizontal;
-	const uint32_t mapRows = MapChipField::kNumBlockVirtical;
-
-	// 右端の1列（mapCols-1）をゴールにする。Zは薄い柱で十分
-	goalArea_.min = {(mapCols - 1) * tileW - tileW * 0.5f, 0.0f, -0.5f};
-	goalArea_.max = {(mapCols - 1) * tileW + tileW * 0.5f, mapRows * tileH, +0.5f};
-
-	// ★タイル端に合わせた可動範囲（中心座標のClamp範囲）
 	Rect area{};
-	area.left = (-BW * 0.5f) + halfW;
-	area.right = (NX * BW - BW * 0.5f) - halfW;
-	area.bottom = (-BH * 0.5f) + halfH;
-	area.top = (NY * BH - BH * 0.5f) - halfH;
-
+	area.left = halfW - BW * 0.5f - marginX;
+	area.right = (NX * BW) - halfW - BW * 0.5f + marginX;
+	area.bottom = halfH - BH * 0.5f - marginY;
+	area.top = (NY * BH) - halfH - BH * 0.5f + marginY;
 	cameraController_.SetMovableArea(area);
-	skydomeModel_ = Model::CreateFromOBJ("skydome", true);
 
+	// --- Fade ---
 	fade_ = new Fade();
 	fade_->Initialize();
-	fade_->Start(Status::FadeIn, 1.0f); // 開始時にフェードイン
+	fade_->Start(Status::FadeIn, 1.0f);
 
+	// --- Goal ---
+	goalModel_ = Model::CreateFromOBJ("door", true);
+	goalTex_ = TextureManager::Load("./Resources/door/door.png");
+	goalWT_.Initialize();
+
+	const float tileW = MapChipField::kBlockWidth;
+	const float tileH = MapChipField::kBlockHeight;
+
+	hasGoal_ = false;
+	for (uint32_t y = 0; y < MapChipField::kNumBlockVirtical; ++y) {
+		for (uint32_t x = 0; x < MapChipField::kNumBlockHorizontal; ++x) {
+			if (mapChipField_->GetMapChipTypeByIndex(x, y) == MapChipType::kGoal) {
+				Vector3 center = mapChipField_->GetMapChipPositionByIndex(x, y);
+
+				goalWT_.translation_ = center;
+				goalWT_.rotation_ = {0.0f, 0.0f, 0.0f};
+				goalWT_.scale_ = {1.0f, 1.0f, 1.0f};
+				goalWT_.matWorld_ = MakeAffineMatrix(goalWT_.scale_, goalWT_.rotation_, goalWT_.translation_);
+				goalWT_.TransferMatrix();
+
+				goalArea_.min = {center.x - tileW * 0.5f, center.y - tileH * 0.5f, -0.5f};
+				goalArea_.max = {center.x + tileW * 0.5f, center.y + tileH * 0.5f, +0.5f};
+
+				hasGoal_ = true;
+				break;
+			}
+		}
+		if (hasGoal_) {
+			break;
+		}
+	}
+
+	// フォールバック
+	if (!hasGoal_) {
+		const uint32_t mapCols = MapChipField::kNumBlockHorizontal;
+		const uint32_t mapRows = MapChipField::kNumBlockVirtical;
+
+		goalArea_.min = {(mapCols - 1) * tileW - tileW * 0.5f, 0.0f, -0.5f};
+		goalArea_.max = {(mapCols - 1) * tileW + tileW * 0.5f, mapRows * tileH, +0.5f};
+
+		Vector3 colCenter = {(mapCols - 1) * tileW, (mapRows * tileH) * 0.5f, 0.0f};
+		goalWT_.translation_ = colCenter;
+		goalWT_.matWorld_ = MakeAffineMatrix(goalWT_.scale_, goalWT_.rotation_, goalWT_.translation_);
+		goalWT_.TransferMatrix();
+	}
+
+	// Initialize() の敵スポーン部分をこうする
+	auto SpawnStageEnemies = [&]() {
+		if (stageIndex_ == 0) { // stage1.csv
+			SpawnEnemyGridByBlocks(30, 0, -18);
+			SpawnEnemyGridByBlocks(16, 0, -19);
+			SpawnEnemyGridByBlocks(13, 0, -19);
+			SpawnEnemyGridByBlocks(18, 0, -19);
+			SpawnEnemyGridByBlocks(40, 0, -17);
+			SpawnEnemyGridByBlocks(46, 0, -14);
+			SpawnEnemyGridByBlocks(50, 0, -17);
+			// ...
+		} else if (stageIndex_ == 1) { // stage2.csv
+			SpawnEnemyGridByBlocks(28, 0, -16);
+			SpawnEnemyGridByBlocks(54, 0, -12);
+			// ...
+		} else if (stageIndex_ == 2) { // stage3.csv
+			SpawnEnemyGridByBlocks(31, 0, -12);
+			SpawnEnemyGridByBlocks(41, 0, -17);
+			SpawnEnemyGridByBlocks(45, 0, -15);
+			SpawnEnemyGridByBlocks(49, 0, -17);
+			SpawnEnemyGridByBlocks(67, 0, -16);
+			SpawnEnemyGridByBlocks(69, 0, -14);
+			// ...
+		}
+	};
+
+	SpawnStageEnemies();
+
+	// --- Blocks生成 ---
 	GenerateBlocks();
 
-	// GameScene.cpp の Initialize 内
-	seGameClearHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/GameClear.mp3");
+	// --- HPバー初期化（ここが超重要：最初に出ない原因を潰す） ---
+	hpBarTex_ = TextureManager::Load("./Resources/white1x1.png");
 
-	// GameScene::Initialize()
-	seGameOverHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/GameOver.mp3");
+	// 3枚とも “同じ1x1” を使い、色で枠/緑/赤を表現する
+	hpFrame_ = Sprite::Create(hpBarTex_, hpBarPos_);
+	hpFill_ = Sprite::Create(hpBarTex_, hpBarPos_);
+	hpDamage_ = Sprite::Create(hpBarTex_, hpBarPos_);
 
-	seBlockHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/block.wav");
+	// 初期HP状態
+	prevHp_ = player_->GetHP();
+	hpRate_ = Clamp01(prevHp_ / float(player_->GetMaxHP()));
+	hpDamageRate_ = hpRate_;
 
-	// どこかのテクスチャ/SE読み込みと同じ並びで
-	seDeathHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/death.mp3");
+	hpShakeTimer_ = 0.0f;
+	hpFlashTimer_ = 0.0f;
+	hpDamageDelay_ = 0.0f;
 
-	// 念のため
-	playedDeathSE_ = false;
+	// GameScene.cpp Initialize() の最後の方でOK
 
-	bgmGameHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/GameBGM.mp3");
+	pauseOverlayTex_ = TextureManager::Load("./Resources/white1x1.png");
+
+	pauseOverlaySprite_.reset(KamataEngine::Sprite::Create(pauseOverlayTex_, {0.0f, 0.0f}));
+
+	// 画面全体を覆うサイズにする（1280x720は自分のウィンドウサイズに合わせて）
+	pauseOverlaySprite_->SetSize({1280.0f, 720.0f});
+
+	// 左上基準にしたい場合（Spriteが中心基準なら不要。基準が違うなら調整）
+	pauseOverlaySprite_->SetAnchorPoint({0.0f, 0.0f});
+
+	pauseTexHandle_ = TextureManager::Load("./Resources/pouse.png");
+
+	pauseSprite_ = Sprite::Create(
+	    pauseTexHandle_, {640.0f, 150.0f} // 画面中央
+	);
+
+	// 中央揃え
+	pauseSprite_->SetAnchorPoint({0.5f, 0.5f});
+
+	// ゲームに戻る
+	pauseBackGame_ = Sprite::Create(TextureManager::Load("./Resources/backtoGame.png"), {470.0f, 350.0f}, {0.5f, 0.5f});
+
+	// タイトルに戻る
+	pauseBackTitle_ = Sprite::Create(TextureManager::Load("./Resources/backtoTitle.png"), {470.0f, 430.0f}, {0.5f, 0.5f});
+	prevMap_.resize(MapChipField::kNumBlockVirtical);
+	for (auto& line : prevMap_) {
+		line.resize(MapChipField::kNumBlockHorizontal, MapChipType::kBlank);
+	}
+	for (uint32_t y = 0; y < MapChipField::kNumBlockVirtical; ++y) {
+		for (uint32_t x = 0; x < MapChipField::kNumBlockHorizontal; ++x) {
+			prevMap_[y][x] = mapChipField_->GetMapChipTypeByIndex(x, y);
+		}
+	}
+
+	// --- BGM（Titleの真似） ---
+	gameBGMHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/GameBGM.mp3");
+
+	// ループあり（true）
+	gameBGMPlayingId_ = Audio::GetInstance()->PlayWave(gameBGMHandle_, true);
+	gameBGMStarted_ = true;
+
+	gameClearBGMHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/GameClear.mp3");
+	gameOverBGMHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/GameOver.mp3");
+
+	playedGameOverBGM_ = false;
+	playedClearBGM_ = false;
+
+	deathHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/death.mp3");
+	deathStarted_ = false;
+	seDecideHandle_ = Audio::GetInstance()->LoadWave("./Resources/Audio/kettei.mp3");
+
+	wireMarkerWT_.Initialize();
+	wireMarkerWT_.scale_ = {0.25f, 0.25f, 0.25f};
+	wireMarkerWT_.rotation_ = {0, 0, 0};
+	wireMarkerWT_.translation_ = {0, 0, 0};
+	wireMarkerActive_ = false;
+
+	// =========================
+	// Wire Cooldown UI
+	// =========================
+	wireTex_ = TextureManager::Load("./Resources/number/wire.png");
+	wireReadyTex_ = TextureManager::Load("./Resources/number/Ready.png");
+	wireDotTex_ = TextureManager::Load("./Resources/number/dot.png");
+	assert(wireTex_ != 0);
+	assert(wireReadyTex_ != 0);
+	assert(wireDotTex_ != 0);
+	// 0-9
+	for (int i = 0; i < 10; ++i) {
+		std::string path = "./Resources/number/" + std::to_string(i) + ".png";
+		wireDigitTex_[i] = TextureManager::Load(path.c_str());
+		assert(wireDigitTex_[i] != 0);
+	}
+
+	// ★表示位置をここで確定（未初期化対策）
+	wireUiBase_ = {40.0f, 40.0f};
+
+	// Sprites（Wire）
+	wireLabelSpr_ = Sprite::Create(wireTex_, wireUiBase_);
+	wireReadySpr_ = Sprite::Create(wireReadyTex_, wireUiBase_);
+	wireDotSpr_ = Sprite::Create(wireDotTex_, wireUiBase_);
+
+	for (int i = 0; i < 10; ++i) {
+		wireDigitSpr_[i] = Sprite::Create(wireDigitTex_[i], wireUiBase_);
+	}
+
+	// アンカー（左上基準）
+	wireLabelSpr_->SetAnchorPoint({0.0f, 0.0f});
+	wireReadySpr_->SetAnchorPoint({0.0f, 0.0f});
+	wireDotSpr_->SetAnchorPoint({0.0f, 0.0f});
+	for (auto* s : wireDigitSpr_) {
+		s->SetAnchorPoint({0.0f, 0.0f});
+	}
+
+	// サイズ（とりあえず固定でOK。あとで画像サイズに合わせて調整）
+	wireLabelSpr_->SetSize({140.0f, 32.0f});
+	wireReadySpr_->SetSize({140.0f, 32.0f});
+	wireDotSpr_->SetSize({16.0f, 32.0f});
+	for (auto* s : wireDigitSpr_) {
+		s->SetSize({24.0f, 32.0f});
+	}
+
+	// =========================
+	// Ammo UI
+	// =========================
+	ammoUiBase_ = {40.0f, 80.0f};
+
+	// ラベル（任意）
+	ammoLabelTex_ = TextureManager::Load("./Resources/number/ammo.png"); // 無いなら作る or 消してOK
+	ammoLabelSpr_ = Sprite::Create(ammoLabelTex_, ammoUiBase_);
+	ammoLabelSpr_->SetAnchorPoint({0.0f, 0.0f});
+	ammoLabelSpr_->SetSize({140.0f, 32.0f});
+
+	// "/"（任意）
+	ammoSlashTex_ = TextureManager::Load("./Resources/number/slash.png"); // 無いなら消してOK
+	ammoSlashSpr_ = Sprite::Create(ammoSlashTex_, ammoUiBase_);
+	ammoSlashSpr_->SetAnchorPoint({0.0f, 0.0f});
+	ammoSlashSpr_->SetSize({16.0f, 32.0f});
+
+	for (int i = 0; i < 10; ++i) {
+		std::string path = "./Resources/number/" + std::to_string(i) + ".png";
+		ammoDigitTex_[i] = TextureManager::Load(path.c_str());
+		assert(ammoDigitTex_[i] != 0);
+	}
+
+
+	for (int i = 0; i < 10; ++i) {
+		ammoCurDigitSpr_[i] = Sprite::Create(ammoDigitTex_[i], ammoUiBase_);
+		ammoMaxDigitSpr_[i] = Sprite::Create(ammoDigitTex_[i], ammoUiBase_);
+
+		ammoCurDigitSpr_[i]->SetAnchorPoint({0.0f, 0.0f});
+		ammoMaxDigitSpr_[i]->SetAnchorPoint({0.0f, 0.0f});
+
+		ammoCurDigitSpr_[i]->SetSize({24.0f, 32.0f});
+		ammoMaxDigitSpr_[i]->SetSize({24.0f, 32.0f});
+	}
+
+
 }
 
+// =========================
+// Play中 更新
+// =========================
 void GameScene::UpdatePlay(float deltaTime) {
+
+	// ブロックスイッチ状態をPlayerへ
 	player_->SetBlocksAreRed(blocksAreRed_);
 
-	// Spaceで赤/青切替：地上にいる時だけ有効
-	// ① 地上でSpaceを押したときに切替
+	for (auto* e : enemies_) {
+		if (e) {
+			e->SetBlocksAreRed(blocksAreRed_);
+		}
+	}
+
+	// ---------------------------------
+	// 赤/青切替（地上Space or 2段ジャンプ）
+	// ---------------------------------
 	if (Input::GetInstance()->TriggerKey(DIK_SPACE) && player_->IsOnGround()) {
 		blocksAreRed_ = !blocksAreRed_;
-		Audio::GetInstance()->PlayWave(seBlockHandle_, false); // block.wav
 	}
-
-	// ② 2段目ジャンプが発生したフレームでも切替
 	if (player_->ConsumeSecondJumpEvent()) {
 		blocksAreRed_ = !blocksAreRed_;
-		Audio::GetInstance()->PlayWave(seBlockHandle_, false); // block.wav
 	}
 
+	// ---------------------------------
+	// 死亡チェック（早期リターン）
+	// ---------------------------------
 	if (player_->IsDead()) {
-
-		Audio::GetInstance()->PlayWave(seDeathHandle_, false);
-
 		const Vector3& pos = player_->GetWorldPosition();
 
 		if (!deathParticles_) {
 			deathParticles_ = new DeathParticles();
 		}
 		deathParticles_->Initialize(pos, particleModel_, &camera_);
+		deathParticles_->isActive_ = true;
 
-		phase_ = Phase::kDeath; // 早めに切り替える
-
+		phase_ = Phase::kDeath;
 		return;
 	}
 
+	// ---------------------------------
+	// Player更新
+	// ---------------------------------
 	player_->Update(deltaTime);
 
-	if (player_->ConsumeFirstJumpEvent()) {
-		
-		// （任意）効果音や演出
-		// PlaySE("switch.wav");
-		// SpawnSwitchParticles(player_->GetWorldPosition());
-	}
+	player_->UpdateBullets(deltaTime, enemies_);
 
-	const float BH = MapChipField::kBlockHeight;
-	const uint32_t NY = MapChipField::kNumBlockVirtical;
-
-	// 最下段(= NY-1) の任意x（0でOK）のタイル中心Y
-	Vector3 bottomCenter = mapChipField_->GetMapChipPositionByIndex(0, NY - 1);
-	float mapBottomEdgeY = bottomCenter.y - (BH * 0.5f); // タイル下端
-
-	// キルライン（下へ余裕を持たせる：タイル2枚分くらい）
-	const float killOffset = BH * 2.0f;
-	float killLineY = mapBottomEdgeY - killOffset;
-
-	// プレイヤーの中心Y（必要なら足元Yで判定しても可）
-	float playerCenterY = player_->GetWorldTransform().translation_.y;
-
-	if (playerCenterY < killLineY) {
-		player_->OnCollision(); // ← 既存の死亡処理を利用（isDead_=true）
-	}
-
-	for (Enemy* enemy : enemies_) {
-		if (enemy) {
-			enemy->Update();
-		}
-	}
-
-	cameraController_.Update();
-
-	// === クリア判定：プレイヤーAABB と ゴールAABB が交差したらクリア ===
+	// ★チャージ破壊ブロックの破片演出
 	{
-		AABB p = player_->GetAABB();
-		if (IsCollisionAABB(p, goalArea_)) {
-			phase_ = Phase::kGameClear;
-			// 必要ならプレイヤー停止（自動走行を止めたいとき）
-			// player_->SetVelocityX(0); など
-			return;
+		auto broken = player_->ConsumeBrokenChargeBlocks();
+		for (const auto& idx : broken) {
+			// 見た目はとりあえず草ブロックでOK（今のDrawと合わせる）
+			SpawnBlockBreakEffect(idx.xIndex, idx.yIndex, blockTexGrass_, grassModel_);
 		}
 	}
 
-	// カメラの処理
-	if (isDebugCameraActive_) {
-		// デバッグカメラの更新（キーボードやマウスで移動・回転など）
-		debugCamera_->Update();
+	// ---------------------------------
+	// 落下死（キルライン）
+	// ---------------------------------
+	{
+		const float kDeathY = -2.0f;
 
-		camera_.matView = debugCamera_->GetCamera().matView;
-		camera_.matProjection = debugCamera_->GetCamera().matProjection;
+		if (player_->GetPosition().y < kDeathY) {
+			player_->KillByFall(); // ★即死
 
-		// ビュープロジェクション行列の転送
-		camera_.TransferMatrix();
-	} else {
-		// 通常カメラのビュープロジェクション行列を更新・転送
-		camera_.UpdateMatrix();
-	}
+			// ★ここで Death 演出開始して即 return（これが重要）
+			const Vector3 pos = player_->GetWorldPosition();
 
-#ifdef _DEBUG
-	if (Input::GetInstance()->TriggerKey(DIK_T)) {
-		isDebugCameraActive_ = true;
-	}
-#endif
-
-	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
-		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			if (!worldTransformBlock)
-				continue;
-
-			// アフィン行列の作成
-			Matrix4x4 worldMatrix = MakeAffineMatrix(worldTransformBlock->scale_, worldTransformBlock->rotation_, worldTransformBlock->translation_);
-			worldTransformBlock->matWorld_ = worldMatrix;
-			// 定数バッファに転送する
-			worldTransformBlock->TransferMatrix();
-		}
-	}
-
-	CheckAllCollisions();
-}
-
-void GameScene::UpdateDeath() {
-	for (Enemy* enemy : enemies_) {
-		if (enemy) {
-			enemy->Update();
-		}
-	}
-	if (deathParticles_ && deathParticles_->isActive_) {
-		deathParticles_->Update();
-	}
-
-	cameraController_.Update();
-	// カメラの処理
-	if (isDebugCameraActive_) {
-		// デバッグカメラの更新（キーボードやマウスで移動・回転など）
-		debugCamera_->Update();
-
-		camera_.matView = debugCamera_->GetCamera().matView;
-		camera_.matProjection = debugCamera_->GetCamera().matProjection;
-
-		// ビュープロジェクション行列の転送
-		camera_.TransferMatrix();
-	} else {
-		// 通常カメラのビュープロジェクション行列を更新・転送
-		camera_.UpdateMatrix();
-	}
-
-#ifdef _DEBUG
-	if (Input::GetInstance()->TriggerKey(DIK_T)) {
-		isDebugCameraActive_ = true;
-	}
-#endif
-
-	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
-		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			if (!worldTransformBlock)
-				continue;
-
-			// アフィン行列の作成
-			Matrix4x4 worldMatrix = MakeAffineMatrix(worldTransformBlock->scale_, worldTransformBlock->rotation_, worldTransformBlock->translation_);
-			worldTransformBlock->matWorld_ = worldMatrix;
-			// 定数バッファに転送する
-			worldTransformBlock->TransferMatrix();
-		}
-	}
-}
-
-void GameScene::ChangePhase() {
-	switch (phase_) {
-	case Phase::kPlay:
-		// プレイ中の切り替え条件（プレイヤー死亡など）をここに書く
-		break;
-
-	case Phase::kDeath:
-		// 今は何も書かなくてよい（演出終了後に書くことになる）
-		break;
-	}
-}
-
-void GameScene::Update() {
-	float deltaTime = 1.0f / 60.0f;
-
-	switch (phase_) {
-	case Phase::kFadeIn:
-		fade_->Update();
-		if (fade_->IsFinished()) {
-			// ここで Play ではなく Countdown に入る
-			isCountingDown_ = true;
-			countdownTimer_ = 0.0f;
-			countdownValue_ = 3;
-			phase_ = Phase::kCountdown;
-			
-		}
-		break;
-
-	case Phase::kCountdown: {
-
-		
-		// 進行
-		countdownTimer_ += deltaTime;
-		UpdatePlay(deltaTime);
-
-		// 1秒ごとに 3→2→1 と減少
-		if (countdownValue_ > 0 && countdownTimer_ >= countdownInterval_) {
-			countdownTimer_ = 0.0f;
-			countdownValue_--;
-		}
-
-		// GO表示の保持 → プレイへ
-		if (countdownValue_ == 0 && countdownTimer_ >= goHoldTime_) {
-			phase_ = Phase::kPlay;
-		}
-
-		// カメラ行列を最新に
-		cameraController_.Update();
-		camera_.UpdateMatrix();
-
-		// viewの3行目を前方向として使う（左手系）
-		Vector3 camPos = camera_.translation_;
-		Vector3 camFwd{camera_.matView.m[2][0], camera_.matView.m[2][1], camera_.matView.m[2][2]};
-
-		float dist = 6.0f; // near/far の間に収める（3〜10で調整可）
-		countWT_.translation_ = {camPos.x + camFwd.x * dist, camPos.y + camFwd.y * dist + 4.0f - 4.0f, camPos.z + camFwd.z * dist};
-
-		// 2) 向き（寝てるならXに+π/2、正面調整にY=π）
-		countWT_.rotation_ = {
-		    std::numbers::pi_v<float> / 2.0f, // X
-		    std::numbers::pi_v<float>,        // Y
-		    0.0f};
-
-		float showT = std::min(countdownTimer_ / 0.2f, 1.0f); // 最初の0.2秒でふわっと
-		float s = std::lerp(1.5f, 2.0f, showT);
-		countWT_.scale_ = {s, s, s};
-
-		// 転送
-		countWT_.matWorld_ = MakeAffineMatrix(countWT_.scale_, countWT_.rotation_, countWT_.translation_);
-		countWT_.TransferMatrix();
-	} break;
-
-	case Phase::kPlay:
-		if (!bgmPlaying_) {
-			bgmGameId_ = Audio::GetInstance()->PlayWave(bgmGameHandle_, true); // ★IDを保存
-			Audio::GetInstance()->SetVolume(bgmGameId_, 0.5f); 
-			bgmPlaying_ = true;
-		}
-		UpdatePlay(deltaTime);
-		for (Scenery* t : trees_) {
-			t->Update();
-		}
-
-		for (auto* g : grasses_) {
-			if (g) {
-				g->Update();
-			}
-		}
-
-
-		if (player_->IsDead()) {
-			// 死亡時にパーティクル初期化をここでやる！
-			const Vector3& pos = player_->GetWorldPosition();
 			if (!deathParticles_) {
 				deathParticles_ = new DeathParticles();
 			}
 			deathParticles_->Initialize(pos, particleModel_, &camera_);
 			deathParticles_->isActive_ = true;
 
-
-			// フェードアウトではなく、死亡フェーズへ移行
 			phase_ = Phase::kDeath;
+			return;
 		}
-		break;
+	}
 
-	// ───────── GameClear の表示（カメラ前固定）─────────
-	case Phase::kGameClear: {
-		
+	// ---------------------------------
+	// Enemy更新（重複ループは1回だけ）
+	// ---------------------------------
+	/*if (enemyA_) {
+	    enemyA_->Update();
+	}
+	if (enemyB_) {
+	    enemyB_->Update();
+	}*/
+
+	for (auto* e : enemies_) {
+		if (e) {
+			e->Update();
+		}
+	}
+
+	// ---------------------------------
+	// カメラ更新
+	// ---------------------------------
+	cameraController_.Update();
+
+	// ---------------------------------
+	// クリア判定（PlayerAABB vs GoalAABB）
+	// ---------------------------------
+	{
+		AABB p = player_->GetAABB();
+		if (IsCollisionAABB(p, goalArea_)) {
+			phase_ = Phase::kGameClear;
+			return;
+		}
+	}
+
+	// ---------------------------------
+	// デバッグカメラ切替
+	// ---------------------------------
+#ifdef _DEBUG
+	if (Input::GetInstance()->TriggerKey(kDebugToggleKey)) {
+		isDebugCameraActive_ = true;
+	}
+#endif
+
+	// カメラ行列更新
+	if (isDebugCameraActive_) {
+		debugCamera_->Update();
+		camera_.matView = debugCamera_->GetCamera().matView;
+		camera_.matProjection = debugCamera_->GetCamera().matProjection;
+		camera_.TransferMatrix();
+	} else {
 		camera_.UpdateMatrix();
+	}
 
+	// 右クリックでワイヤー開始（※入力取得は君の環境に合わせて）
+	// 右クリックでワイヤー開始
+	// 右クリックでワイヤー開始（壁がある時だけ）
+	if (KamataEngine::Input::GetInstance()->IsTriggerMouse(1)) {
 
-		if (bgmPlaying_) {
-			Audio::GetInstance()->StopWave(bgmGameId_); // ★ハンドルではなくID
-			bgmPlaying_ = false;
-			bgmGameId_ = 0;
+		const auto& mp = KamataEngine::Input::GetInstance()->GetMousePosition();
+		float mx = mp.x;
+		float my = mp.y;
+
+		const float sw = 1280.0f;
+		const float sh = 720.0f;
+
+		Ray ray = MakeMouseRayLH(camera_, mx, my, sw, sh);
+
+		// ★壁がある時だけ発動（Player側でFindWireHitPointする）
+		player_->StartWireByMouseRay(ray);
+
+		// マーカー表示は「実際にワイヤーが開始できた時だけ」
+		if (player_->IsWireActive()) {
+			wireMarkerWT_.translation_ = player_->GetWireTarget(); // ← getter 作る
+			wireMarkerActive_ = true;
+		} else {
+			wireMarkerActive_ = false;
 		}
-		if (!seGameClearPlayed_) {
-			seGameClearId_ = Audio::GetInstance()->PlayWave(seGameClearHandle_, false);
-			seGameClearPlayed_ = true;
+	}
+
+	// 常にガイド用ターゲットを更新（ワイヤーしてなくても）
+	{
+		const auto& mp = KamataEngine::Input::GetInstance()->GetMousePosition();
+		float mx = mp.x;
+		float my = mp.y;
+
+		const float sw = 1280.0f;
+		const float sh = 720.0f;
+
+		Ray ray = MakeMouseRayLH(camera_, mx, my, sw, sh);
+
+		player_->UpdateWireGuideByMouseRay(ray);
+
+	}
+
+
+
+	// ---------------------------------
+	// ブロック行列転送（必要なら）
+	// ---------------------------------
+	for (auto& line : worldTransformBlocks_) {
+		for (auto* wt : line) {
+			if (!wt) {
+				continue;
+			}
+			wt->matWorld_ = MakeAffineMatrix(wt->scale_, wt->rotation_, wt->translation_);
+			wt->TransferMatrix();
 		}
-		// 1) カメラ位置から “少し手前(-Z)” & “少し上(+Y)” に固定配置
-		// const float distZ = 6.0f;   // 手前距離（3〜10で調整）
-		// const float offsetY = 4.0f; // ちょい上
-		// const float offsetX = 0.0f; // 必要なら横ズラし
+	}
 
-		// viewの3行目を前方向として使う（左手系）
-		Vector3 camPos = camera_.translation_;
-		Vector3 camFwd{camera_.matView.m[2][0], camera_.matView.m[2][1], camera_.matView.m[2][2]};
+	// ---------------------------------
+	// 当たり判定
+	// ---------------------------------
 
-		float dist = 6.0f; // near/far の間に収める（3〜10で調整可）
-		gameClearWT_.translation_ = {camPos.x + camFwd.x * dist - 2.5f, camPos.y + camFwd.y * dist + 4.0f - 4.0f, camPos.z + camFwd.z * dist};
+	if (player_->IsAttacking()) {
+		const AABB atk = player_->GetAttackAABB();
 
-		// 2) 向き（寝てるならXに+π/2、正面調整にY=π）
-		gameClearWT_.rotation_ = {
-		    std::numbers::pi_v<float> / 2.0f, // X
-		    std::numbers::pi_v<float>,        // Y
-		    0.0f};
+		for (Enemy* e : enemies_) {
+			if (!e)
+				continue;
 
-		// 3) 大きさ
-		gameClearWT_.scale_ = {1.0f, 1.0f, 1.0f};
+			// ★追加：死に演出中/死んでる敵には当てない
+			if (e->IsDead() || e->IsDying())
+				continue;
 
-		// 4) 行列更新＆転送（毎フレーム）
-		gameClearWT_.matWorld_ = MakeAffineMatrix(gameClearWT_.scale_, gameClearWT_.rotation_, gameClearWT_.translation_);
-		gameClearWT_.TransferMatrix();
-
-		// デバッグ出力
-		DebugText::GetInstance()->ConsolePrintf(
-		    "[CLEAR] drawn=%d cam(%.2f,%.2f,%.2f) pos(%.2f,%.2f,%.2f)\n", gameClearModel_ ? 1 : 0, camera_.translation_.x, camera_.translation_.y, camera_.translation_.z, gameClearWT_.translation_.x,
-		    gameClearWT_.translation_.y, gameClearWT_.translation_.z);
-
-		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
-			finished_ = true;
+			if (IsAABBOverlap(atk, e->GetAABB())) {
+				e->OnHit(1, player_->GetWorldPosition());
+			}
 		}
-	} break;
+	}
 
+	CheckAllCollisions();
+	UpdateBlockBreakPieces(deltaTime);
+
+	// ---------------------------------
+	// HP演出更新（被弾判定は “HPが減った瞬間”）
+	// ---------------------------------
+	const int hpNow = player_->GetHP();
+
+	if (hpNow < prevHp_) {
+		hpShakeTimer_ = kHpShakeTime;
+		hpFlashTimer_ = kHpFlashTime;
+		hpDamageDelay_ = kHpDelayTime;
+	}
+	prevHp_ = hpNow;
+
+	hpRate_ = Clamp01(hpNow / float(player_->GetMaxHP()));
+
+	hpShakeTimer_ = std::max(0.0f, hpShakeTimer_ - deltaTime);
+	hpFlashTimer_ = std::max(0.0f, hpFlashTimer_ - deltaTime);
+
+	if (hpDamageDelay_ > 0.0f) {
+		hpDamageDelay_ = std::max(0.0f, hpDamageDelay_ - deltaTime);
+	} else {
+		hpDamageRate_ = std::max(hpRate_, hpDamageRate_ - kHpDamageSpeed * deltaTime);
+	}
+
+	for (auto it = enemies_.begin(); it != enemies_.end();) {
+		Enemy* e = *it;
+		if (e && e->IsDead()) {
+			delete e;
+			it = enemies_.erase(it);
+		} else {
+			++it;
+		}
+	}
+
+	// ★「5→0」になった場所を探して破片を出す
+	for (uint32_t y = 0; y < MapChipField::kNumBlockVirtical; ++y) {
+		for (uint32_t x = 0; x < MapChipField::kNumBlockHorizontal; ++x) {
+			MapChipType now = mapChipField_->GetMapChipTypeByIndex(x, y);
+			MapChipType prev = prevMap_[y][x];
+
+			if (prev == MapChipType::kChargeBreakable && now == MapChipType::kBlank) {
+				SpawnBlockBreakEffect(x, y, blockTexW_, cubeModel_);
+			}
+
+			prevMap_[y][x] = now;
+		}
+	}
+}
+
+// =========================
+// Death演出 更新
+// =========================
+void GameScene::UpdateDeath() {
+
+	for (Enemy* enemy : enemies_) {
+		if (enemy) {
+			enemy->Update();
+		}
+	}
+
+	if (deathParticles_ && deathParticles_->isActive_) {
+		deathParticles_->Update();
+	}
+
+	cameraController_.Update();
+
+#ifdef _DEBUG
+	if (Input::GetInstance()->TriggerKey(kDebugToggleKey)) {
+		isDebugCameraActive_ = true;
+	}
+#endif
+
+	if (isDebugCameraActive_) {
+		debugCamera_->Update();
+		camera_.matView = debugCamera_->GetCamera().matView;
+		camera_.matProjection = debugCamera_->GetCamera().matProjection;
+		camera_.TransferMatrix();
+	} else {
+		camera_.UpdateMatrix();
+	}
+
+	for (auto& line : worldTransformBlocks_) {
+		for (auto* wt : line) {
+			if (!wt) {
+				continue;
+			}
+			wt->matWorld_ = MakeAffineMatrix(wt->scale_, wt->rotation_, wt->translation_);
+			wt->TransferMatrix();
+		}
+	}
+}
+
+// =========================
+// Phase切替（今は空でもOK）
+// =========================
+void GameScene::ChangePhase() {
+	switch (phase_) {
+	case Phase::kPlay:
+		break;
 	case Phase::kDeath:
-
-		if (bgmPlaying_) {
-			Audio::GetInstance()->StopWave(bgmGameId_); // ★ハンドルではなくID
-			bgmPlaying_ = false;
-			bgmGameId_ = 0;
-		}
-
-		if (!playedDeathSE_) { // ★ガード
-			Audio::GetInstance()->PlayWave(seDeathHandle_, false);
-			playedDeathSE_ = true;
-		}
-		UpdateDeath();
-
-		if (deathParticles_ && deathParticles_->IsFinished()) {
-			// GameOverへ
-			phase_ = Phase::kGameOver;
-			gameOverAnimT_ = 0.0f; // アニメ開始
-		}
 		break;
-
-	case Phase::kGameOver: {
-		
-		if (!seGameOverPlayed_) {
-			seGameOverId_ = Audio::GetInstance()->PlayWave(seGameOverHandle_, false);
-			seGameOverPlayed_ = true;
-		}
-
-		// カメラ更新（固定でもOK）
-		camera_.UpdateMatrix();
-
-		// SPACE でタイトルへ
-		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
-			finished_ = true; // タイトルへ戻る（シーンマネージャ側でハンドル）
-		}
-
-	} break;
-
-	case Phase::kFadeOut:
-
-		fade_->Update();
-		if (fade_->IsFinished()) {
-			finished_ = true; // シーン終了
-		}
+	default:
 		break;
 	}
 }
 
+// =========================
+// Update（Phase別）
+// =========================
+void GameScene::Update() {
+
+	const float deltaTime = kFixedDeltaTime;
+
+	// TABでポーズ切り替え
+	if (Input::GetInstance()->TriggerKey(DIK_TAB)) {
+		isPaused_ = !isPaused_;
+		pauseCursor_ = 0;
+	}
+
+	// ポーズ中はゲーム更新止める（とりあえず）
+	if (isPaused_) {
+
+		// 上下操作
+		if (Input::GetInstance()->TriggerKey(DIK_W) || Input::GetInstance()->TriggerKey(DIK_UP)) {
+			pauseCursor_ = (pauseCursor_ + 1) % 2;
+		}
+		if (Input::GetInstance()->TriggerKey(DIK_S) || Input::GetInstance()->TriggerKey(DIK_DOWN)) {
+			pauseCursor_ = (pauseCursor_ + 1) % 2;
+		}
+
+		// 決定
+		// 決定
+		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+			if (pauseCursor_ == 0) {
+				if (!sePlayed_) {
+					seDecideId_ = Audio::GetInstance()->PlayWave(seDecideHandle_, false); // ループなし
+					// もし音量APIがあるなら例：
+					// Audio::GetInstance()->SetVolume(seDecideId_, 0.8f);
+					sePlayed_ = true;
+				}
+				// ゲームに戻る
+				isPaused_ = false;
+				sePlayed_ = false;
+			} else {
+				if (gameBGMPlayingId_ != -1) {
+					if (!sePlayed_) {
+						seDecideId_ = Audio::GetInstance()->PlayWave(seDecideHandle_, false); // ループなし
+						// もし音量APIがあるなら例：
+						// Audio::GetInstance()->SetVolume(seDecideId_, 0.8f);
+						sePlayed_ = true;
+					}
+					Audio::GetInstance()->StopWave(gameBGMPlayingId_);
+					gameBGMPlayingId_ = -1;
+					gameBGMStarted_ = false;
+				}
+
+				// タイトルに戻る
+				finished_ = true;
+				nextScene_ = NextScene::kTitle;
+			}
+		}
+
+		return;
+	}
+
+	switch (phase_) {
+	case Phase::kFadeIn:
+		fade_->Update();
+		if (fade_->IsFinished()) {
+			isCountingDown_ = true;
+			countdownTimer_ = 0.0f;
+			countdownValue_ = 3;
+			phase_ = Phase::kCountdown;
+		}
+		break;
+
+	case Phase::kCountdown:
+		countdownTimer_ += deltaTime;
+
+		// カウント中でもゲームは動かす（あなたの仕様を尊重）
+		UpdatePlay(deltaTime);
+
+		if (countdownValue_ > 0 && countdownTimer_ >= countdownInterval_) {
+			countdownTimer_ = 0.0f;
+			countdownValue_--;
+		}
+
+		if (countdownValue_ == 0 && countdownTimer_ >= goHoldTime_) {
+			phase_ = Phase::kPlay;
+		}
+
+		// カメラ更新
+		cameraController_.Update();
+		camera_.UpdateMatrix();
+		break;
+
+	case Phase::kPlay:
+		UpdatePlay(deltaTime);
+
+		for (Scenery* t : trees_) {
+			if (t) {
+				t->Update();
+			}
+		}
+		for (auto* g : grasses_) {
+			if (g) {
+				g->Update();
+			}
+		}
+		break;
+
+	case Phase::kGameClear: {
+
+		if (gameBGMPlayingId_ != -1) {
+			Audio::GetInstance()->StopWave(gameBGMPlayingId_);
+			gameBGMPlayingId_ = -1;
+			gameBGMStarted_ = false;
+		}
+
+		if (!playedClearBGM_) {
+
+			gameClearBGMPlayingId_ = Audio::GetInstance()->PlayWave(gameClearBGMHandle_, false);
+			playedClearBGM_ = true;
+		}
+
+		camera_.UpdateMatrix();
+
+		// 表示位置計算（今のままでOK）
+		Vector3 camPos = camera_.translation_;
+		Vector3 camFwd{camera_.matView.m[2][0], camera_.matView.m[2][1], camera_.matView.m[2][2]};
+
+		float dist = 6.0f;
+		gameClearWT_.translation_ = {camPos.x + camFwd.x * dist - 2.5f, camPos.y + camFwd.y * dist, camPos.z + camFwd.z * dist};
+
+		gameClearWT_.rotation_ = {std::numbers::pi_v<float> / 2.0f, std::numbers::pi_v<float>, 0.0f};
+
+		gameClearWT_.scale_ = {1.0f, 1.0f, 1.0f};
+		gameClearWT_.matWorld_ = MakeAffineMatrix(gameClearWT_.scale_, gameClearWT_.rotation_, gameClearWT_.translation_);
+		gameClearWT_.TransferMatrix();
+
+		// ★ここが重要
+		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+			finished_ = true;
+			nextScene_ = NextScene::kTitle; // ← タイトルに戻る指定
+		}
+	} break;
+
+	case Phase::kDeath:
+		if (gameBGMPlayingId_ != -1) {
+			Audio::GetInstance()->StopWave(gameBGMPlayingId_);
+			gameBGMPlayingId_ = -1;
+			gameBGMStarted_ = false;
+		}
+
+		if (!deathStarted_) {
+
+			deathPlayingId_ = Audio::GetInstance()->PlayWave(deathHandle_, false);
+			deathStarted_ = true;
+		}
+
+		UpdateDeath();
+		if (deathParticles_ && deathParticles_->IsFinished()) {
+			phase_ = Phase::kGameOver;
+			gameOverAnimT_ = 0.0f;
+		}
+		break;
+
+	case Phase::kGameOver:
+		camera_.UpdateMatrix();
+
+		if (!playedGameOverBGM_) {
+			gameOverBGMPlayingId_ = Audio::GetInstance()->PlayWave(gameOverBGMHandle_, false);
+			playedGameOverBGM_ = true;
+		}
+
+		if (Input::GetInstance()->TriggerKey(DIK_SPACE)) {
+			finished_ = true;
+			nextScene_ = NextScene::kRestart; // ★これが必須
+			// stageIndex_ は GameScene が持ってるので、そのままでOK
+		}
+		break;
+
+
+	case Phase::kFadeOut:
+		fade_->Update();
+		if (fade_->IsFinished()) {
+			finished_ = true;
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
+// =========================
+// Draw
+// =========================
 void GameScene::Draw() {
 
+	// --- Skydome ---
 	skydome_->Draw(skydomeModel_, camera_, skyDomeTexture_);
+
+	// --- Player or DeathParticles ---
 	if (!player_->IsDead()) {
 		player_->Draw();
-
+		player_->DrawBullets();
+		player_->DrawWireDots();
 	} else {
-		// 描画処理
 		if (deathParticles_) {
 			deathParticles_->Draw();
 		}
 	}
 
+	// --- Enemies ---
 	for (Enemy* enemy : enemies_) {
 		if (enemy) {
 			enemy->Draw();
 		}
 	}
+	// if (enemyA_) {
+	//	enemyA_->Draw();
+	// }
+	// if (enemyB_) {
+	//	enemyB_->Draw();
+	// } // ※2回描画してたのを修正
 
-	for (Scenery* t : trees_) {
-		t->Draw();
+	// --- Goal ---
+	if (goalModel_) {
+		goalModel_->Draw(goalWT_, camera_, goalTex_);
 	}
 
+	// --- Scenery ---
+	for (Scenery* t : trees_) {
+		if (t) {
+			t->Draw();
+		}
+	}
 	for (auto* g : grasses_) {
 		if (g) {
 			g->Draw();
 		}
 	}
 
+	// --- Blocks ---
 	for (uint32_t i = 0; i < worldTransformBlocks_.size(); ++i) {
 		for (uint32_t j = 0; j < worldTransformBlocks_[i].size(); ++j) {
-			KamataEngine::WorldTransform* wt = worldTransformBlocks_[i][j];
-			if (!wt)
+
+			WorldTransform* wt = worldTransformBlocks_[i][j];
+			if (!wt) {
 				continue;
+			}
 
 			MapChipType type = mapChipField_->GetMapChipTypeByIndex(j, i);
 
-			KamataEngine::Model* drawModel = nullptr;
+			Model* drawModel = nullptr;
 			uint32_t tex = 0;
 
 			switch (type) {
 			case MapChipType::kBlock:
-				drawModel = model_;
+				drawModel = grassModel_;
 				tex = blockTexGrass_;
 				break;
 			case MapChipType::kBlockRed:
@@ -723,16 +1160,21 @@ void GameScene::Draw() {
 				drawModel = cubeModel_;
 				tex = blockTexBlue_;
 				break;
+			case MapChipType::kChargeBreakable:
+				drawModel = cubeModel_; // とりあえず草ブロック見た目でOK（あとで専用テクスチャでも可）
+				tex = blockTexW_;
+				break;
+
 			default:
 				break;
 			}
-			if (!drawModel)
+			if (!drawModel) {
 				continue;
+			}
 
-			// デフォルトのスケールをコピー
 			Vector3 scale = wt->scale_;
 
-			// 無効な赤・青は縮めるだけ
+			// 無効な赤青は縮める
 			if (type == MapChipType::kBlockRed && !blocksAreRed_) {
 				scale = {0.2f, 0.2f, 0.2f};
 			}
@@ -740,88 +1182,278 @@ void GameScene::Draw() {
 				scale = {0.2f, 0.2f, 0.2f};
 			}
 
-			// 行列更新
-			Matrix4x4 world = MakeAffineMatrix(scale, wt->rotation_, wt->translation_);
-			wt->matWorld_ = world;
+			wt->matWorld_ = MakeAffineMatrix(scale, wt->rotation_, wt->translation_);
 			wt->TransferMatrix();
 
 			drawModel->Draw(*wt, camera_, tex);
 		}
 	}
+	// --- Block Break Pieces ---
+	for (auto& p : breakPieces_) {
+		if (!p.alive) {
+			continue;
+		}
+		if (!p.model) {
+			continue;
+		}
+		p.model->Draw(p.wt, camera_, p.tex);
+	}
 
+	// --- Countdown（OBJを使ってるならここで） ---
 	if (phase_ == Phase::kCountdown) {
-		// どのモデルを出すか選択
-		KamataEngine::Model* m = nullptr;
-		if (countdownValue_ >= 3)
+		Model* m = nullptr;
+		if (countdownValue_ >= 3) {
 			m = countModel3_;
-		else if (countdownValue_ == 2)
+		} else if (countdownValue_ == 2) {
 			m = countModel2_;
-		else if (countdownValue_ == 1)
+		} else if (countdownValue_ == 1) {
 			m = countModel1_;
-		else /* 0 */
+		} else {
 			m = countModelGO_;
+		}
 
 		if (m) {
 			m->Draw(countWT_, camera_);
 		}
 	}
 
+	if (wireMarkerActive_ && player_ && player_->IsWireActive()) {
+		wireMarkerWT_.matWorld_ = MakeAffineMatrix(wireMarkerWT_.scale_, wireMarkerWT_.rotation_, wireMarkerWT_.translation_);
+		wireMarkerWT_.TransferMatrix();
+
+		// 例：cubeModel_で描く（テクスチャ無しでもOKなモデルならOK）
+		cubeModel_->Draw(wireMarkerWT_, camera_, blockTexW_);
+	}
+
+
+	// --- GameClear ---
 	if (phase_ == Phase::kGameClear) {
 		if (gameClearModel_) {
 			gameClearModel_->Draw(gameClearWT_, camera_, gameClearTex_);
 		}
-		// 確認ログ（ImGuiなしでもOK）
-		DebugText::GetInstance()->ConsolePrintf(
-		    "[CLEAR] drawn=%d pos(%.2f, %.2f, %.2f)\n", gameClearModel_ ? 1 : 0, gameClearWT_.translation_.x, gameClearWT_.translation_.y, gameClearWT_.translation_.z);
 	}
 
+	// --- GameOver ---
 	if (phase_ == Phase::kGameOver) {
-		
+
 		camera_.UpdateMatrix();
 
-		// viewの3行目を前方向として使う（左手系）
 		Vector3 camPos = camera_.translation_;
 		Vector3 camFwd{camera_.matView.m[2][0], camera_.matView.m[2][1], camera_.matView.m[2][2]};
 
-		float dist = 6.0f; // near/far の間に収める（3〜10で調整可）
-		gameOverWT_.translation_ = {camPos.x + camFwd.x * dist - 2.5f, camPos.y + camFwd.y * dist + 4.0f - 4.0f, camPos.z + camFwd.z * dist};
+		float dist = 6.0f;
+		gameOverWT_.translation_ = {camPos.x + camFwd.x * dist - 2.5f, camPos.y + camFwd.y * dist + 0.0f, camPos.z + camFwd.z * dist};
 
-		// まず回転ゼロで確認（寝て見えない対策）
 		gameOverWT_.rotation_ = {std::numbers::pi_v<float> / 2.0f, std::numbers::pi_v<float>, 0.0f};
 
-		// とにかくデカくして確認
 		gameOverWT_.scale_ = {1.0f, 1.0f, 1.0f};
 
 		gameOverWT_.matWorld_ = MakeAffineMatrix(gameOverWT_.scale_, gameOverWT_.rotation_, gameOverWT_.translation_);
 		gameOverWT_.TransferMatrix();
 
-		// ★ 本命OBJと同じWTで、草ブロックも描く（必ず見えるはず）
-		// model_->Draw(gameOverWT_, camera_, block_); // プロキシ
-		gameOverModel_->Draw(gameOverWT_, camera_, gameOverTex_); // 本命
+		gameOverModel_->Draw(gameOverWT_, camera_, gameOverTex_);
 	}
-	// 最後にフェード
+
+	Sprite::PreDraw(DirectXCommon::GetInstance()->GetCommandList());
+
+	// =========================
+	// HPバー描画（Play/Countdown中、かつ生存中）
+	// =========================
+	if (!player_->IsDead() && (phase_ == Phase::kPlay || phase_ == Phase::kCountdown)) {
+
+		// hpFrame_/hpFill_/hpDamage_ が生成されている前提（Initializeで作ってる）
+		if (hpFrame_ && hpFill_ && hpDamage_) {
+
+			float shakeX = 0.0f;
+			if (hpShakeTimer_ > 0.0f) {
+				float t = hpShakeTimer_ * 60.0f;
+				shakeX = std::sin(t * 12.0f) * 6.0f;
+			}
+
+			Vector2 basePos = {hpBarPos_.x + shakeX, hpBarPos_.y};
+			Vector2 frameSize = kHpFrameSize;
+
+			float innerW = frameSize.x - (kHpFramePadding * 2.0f);
+			float innerH = frameSize.y - (kHpFramePadding * 2.0f);
+			Vector2 innerPos = {basePos.x + kHpFramePadding, basePos.y + kHpFramePadding};
+
+			// 枠（白）
+			hpFrame_->SetPosition(basePos);
+			hpFrame_->SetSize(frameSize);
+			hpFrame_->SetColor({1, 1, 1, 1});
+			hpFrame_->Draw();
+
+			// 赤残像（遅れて縮む）
+			hpDamage_->SetPosition(innerPos);
+			hpDamage_->SetSize({innerW * hpDamageRate_, innerH});
+			hpDamage_->SetColor({0.8f, 0.1f, 0.1f, 1});
+			hpDamage_->Draw();
+
+			// 緑本体（フラッシュ）
+			hpFill_->SetPosition(innerPos);
+			hpFill_->SetSize({innerW * hpRate_, innerH});
+
+			if (hpFlashTimer_ > 0.0f) {
+				hpFill_->SetColor({1, 1, 1, 1});
+			} else {
+				hpFill_->SetColor({0.1f, 0.9f, 0.1f, 1});
+			}
+			hpFill_->Draw();
+		}
+	}
+
+	if (isPaused_) {
+		// 半透明の黒にする（SetColor がある場合）
+		// 0.0f=黒、alpha=0.5f くらい
+		pauseOverlaySprite_->SetColor({0.0f, 0.0f, 0.0f, 0.8f});
+		pauseOverlaySprite_->Draw();
+		pauseSprite_->Draw();
+
+		// 色制御
+		if (pauseCursor_ == 0) {
+			pauseBackGame_->SetColor({1, 1, 1, 1});
+			pauseBackTitle_->SetColor({1, 1, 1, 0.4f});
+		} else {
+			pauseBackGame_->SetColor({1, 1, 1, 0.4f});
+			pauseBackTitle_->SetColor({1, 1, 1, 1});
+		}
+
+		pauseBackGame_->Draw();
+		pauseBackTitle_->Draw();
+	}
+
+	// Sprite::PreDraw(...) の後あたりでOK
+
+	// =========================
+	// Wire Cooldown UI draw
+	// =========================
+	if (player_ && !player_->IsDead()) {
+
+		// 「ワイヤー:」ラベル
+		if (wireLabelSpr_) {
+			wireLabelSpr_->SetPosition(wireUiBase_);
+			wireLabelSpr_->Draw();
+		}
+
+		// 数字/READY の表示位置（ラベルの右）
+		KamataEngine::Vector2 numPos = {wireUiBase_.x + 160.0f, wireUiBase_.y + 0.0f};
+
+		float cd = player_->GetWireCooldown(); // Player.h の getter（さっき追加したやつ）
+
+		if (cd <= 0.0f) {
+			// READY
+			if (wireReadySpr_) {
+				wireReadySpr_->SetPosition(numPos);
+				wireReadySpr_->Draw();
+			}
+		} else {
+			// 数字（9.8 みたいに）
+			if (wireDotSpr_) {
+				DrawWireCooldownNumber(cd, numPos, wireDigitSpr_, wireDotSpr_);
+			}
+		}
+	}
+
+// =========================
+	// Ammo UI draw
+	// =========================
+	if (player_ && !player_->IsDead()) {
+
+		// ラベル
+		if (ammoLabelSpr_) {
+			ammoLabelSpr_->SetPosition(ammoUiBase_);
+			ammoLabelSpr_->Draw();
+		}
+
+		// 数字の開始位置（ラベルの右）
+		KamataEngine::Vector2 p = {ammoUiBase_.x + 160.0f, ammoUiBase_.y};
+
+		int cur = player_->GetAmmo();
+		int max = player_->GetMaxAmmo();
+
+		cur = std::clamp(cur, 0, 999);
+		max = std::clamp(max, 0, 999);
+
+		// ★Sprite配列を受け取るようにする
+		auto DrawInt3 = [&](int v, KamataEngine::Vector2 pos, std::array<KamataEngine::Sprite*, 10>& digitSpr) {
+			int h = (v / 100) % 10;
+			int t = (v / 10) % 10;
+			int o = v % 10;
+
+			float x = pos.x;
+			float y = pos.y;
+
+			if (v >= 100) {
+				digitSpr[h]->SetPosition({x, y});
+				digitSpr[h]->Draw();
+				x += 24.0f;
+			}
+			if (v >= 10) {
+				digitSpr[t]->SetPosition({x, y});
+				digitSpr[t]->Draw();
+				x += 24.0f;
+			}
+
+			digitSpr[o]->SetPosition({x, y});
+			digitSpr[o]->Draw();
+			x += 24.0f;
+
+			return x;
+		};
+
+		// 現在弾数
+		float x = DrawInt3(cur, p, ammoCurDigitSpr_);
+
+		// "/"
+		if (ammoSlashSpr_) {
+			ammoSlashSpr_->SetPosition({x + 8.0f, p.y});
+			ammoSlashSpr_->Draw();
+		}
+		x += 24.0f;
+
+		// 最大弾数
+		DrawInt3(max, {x + 8.0f, p.y}, ammoMaxDigitSpr_);
+	}
+
+	Sprite::PostDraw();
+
+	// --- Fade ---
 	if (phase_ == Phase::kFadeIn || phase_ == Phase::kFadeOut) {
 		fade_->Draw();
 	}
 }
 
+// =========================
+// デストラクタ
+// =========================
 GameScene::~GameScene() {
-	
-	// デバックカメラの開放
+
 	delete debugCamera_;
-	// 3Dモデルデータの開放
+	debugCamera_ = nullptr;
+
 	delete model_;
-	// スカイドームの開放
-	delete skydome_;
-	delete skydomeModel_;
-	// マップチップフィールドの開放
-	delete mapChipField_;
+	model_ = nullptr;
 	delete playerModel_;
+	playerModel_ = nullptr;
+	delete enemyModel_;
+	enemyModel_ = nullptr;
+	delete cubeModel_;
+	cubeModel_ = nullptr;
+	delete particleModel_;
+	particleModel_ = nullptr;
+
+	delete skydome_;
+	skydome_ = nullptr;
+	delete skydomeModel_;
+	skydomeModel_ = nullptr;
+
+	delete mapChipField_;
+	mapChipField_ = nullptr;
+
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
 	enemies_.clear();
-	delete enemyModel_;
 
 	delete deathParticles_;
 	deathParticles_ = nullptr;
@@ -834,52 +1466,236 @@ GameScene::~GameScene() {
 	delete grassModel_;
 	grassModel_ = nullptr;
 
-	delete cubeModel_;
-	cubeModel_ = nullptr;
-
-	// ワールドトランスフォーム開放
-	for (std::vector<KamataEngine::WorldTransform*>& worldTransformBlockLine : worldTransformBlocks_) {
-		for (KamataEngine::WorldTransform* worldTransformBlock : worldTransformBlockLine) {
-			delete worldTransformBlock;
+	for (auto& line : worldTransformBlocks_) {
+		for (auto* wt : line) {
+			delete wt;
 		}
 	}
+	worldTransformBlocks_.clear();
 
 	for (Scenery* t : trees_) {
 		delete t;
 	}
 	trees_.clear();
-
 	delete treeModel_;
 	treeModel_ = nullptr;
 
-	worldTransformBlocks_.clear();
+	// HPバー（3枚）
+	delete hpFrame_;
+	hpFrame_ = nullptr;
+	delete hpFill_;
+	hpFill_ = nullptr;
+	delete hpDamage_;
+	hpDamage_ = nullptr;
+
+	// ※hpBar_ はもう使ってないなら、メンバ自体削除推奨
+	delete hpBar_;
+	hpBar_ = nullptr;
+
+	// fade
+	delete fade_;
+	fade_ = nullptr;
+	// bullet model
+	delete bulletModel_;
+	bulletModel_ = nullptr;
+
+	// wire UI
+	delete wireLabelSpr_;
+	wireLabelSpr_ = nullptr;
+	delete wireReadySpr_;
+	wireReadySpr_ = nullptr;
+	delete wireDotSpr_;
+	wireDotSpr_ = nullptr;
+	for (auto& s : wireDigitSpr_) {
+		delete s;
+		s = nullptr;
+	}
+
+	// Ammo UI
+	delete ammoLabelSpr_;
+	ammoLabelSpr_ = nullptr;
+
+	delete ammoSlashSpr_;
+	ammoSlashSpr_ = nullptr;
+
+	for (auto& s : ammoCurDigitSpr_) {
+		delete s;
+		s = nullptr;
+	}
+	for (auto& s : ammoMaxDigitSpr_) {
+		delete s;
+		s = nullptr;
+	}
 }
 
+// =========================
+// ブロック生成
+// =========================
 void GameScene::GenerateBlocks() {
-	// 要素数
-	uint32_t numBlockVirtical = mapChipField_->kNumBlockVirtical;
-	uint32_t numBlockHorizontal = mapChipField_->kNumBlockHorizontal;
 
-	// 要素数を変更する
-	// 列数を設定
+	const uint32_t numBlockVirtical = MapChipField::kNumBlockVirtical;
+	const uint32_t numBlockHorizontal = MapChipField::kNumBlockHorizontal;
+
 	worldTransformBlocks_.resize(numBlockVirtical);
 	for (uint32_t i = 0; i < numBlockVirtical; ++i) {
-		// 行数を設定
 		worldTransformBlocks_[i].resize(numBlockHorizontal);
 	}
 
-	// 例（GameScene::GenerateBlocks の該当箇所）
-	for (uint32_t i = 0; i < MapChipField::kNumBlockVirtical; ++i) {
-		for (uint32_t j = 0; j < MapChipField::kNumBlockHorizontal; ++j) {
+	for (uint32_t i = 0; i < numBlockVirtical; ++i) {
+		for (uint32_t j = 0; j < numBlockHorizontal; ++j) {
+
 			MapChipType type = mapChipField_->GetMapChipTypeByIndex(j, i);
-			if (type != MapChipType::kBlank) {
-				WorldTransform* worldTransform = new WorldTransform();
-				worldTransform->Initialize();
-				worldTransformBlocks_[i][j] = worldTransform;
-				worldTransformBlocks_[i][j]->translation_ = mapChipField_->GetMapChipPositionByIndex(j, i);
+			if (type == MapChipType::kBlank) {
+				continue;
 			}
+
+			WorldTransform* wt = new WorldTransform();
+			wt->Initialize();
+			wt->translation_ = mapChipField_->GetMapChipPositionByIndex(j, i);
+
+			worldTransformBlocks_[i][j] = wt;
 		}
 	}
 }
 
+// =========================
+// 敵スポーン
+// =========================
+Enemy* GameScene::SpawnEnemyGrid(uint32_t gx, uint32_t gy, float yOffset) {
 
+	Vector3 p = mapChipField_->GetMapChipPositionByIndex(gx, gy);
+	p.y += yOffset;
+
+	// Z方向補正（あなたのコードを尊重）
+	Vector3 camFwd{camera_.matView.m[2][0], camera_.matView.m[2][1], camera_.matView.m[2][2]};
+	p.z += (camFwd.z < 0.0f) ? -0.5f : +0.5f;
+
+	auto* e = new Enemy();
+	e->Initialize(enemyModel_, &camera_, p);
+	e->SetTexture(enemyTex);
+	e->SetMapChipField(mapChipField_);
+	e->SetBlocksAreRed(blocksAreRed_);
+
+	enemies_.push_back(e);
+	return e;
+}
+
+Enemy* GameScene::SpawnEnemyAt(const Vector3& pos) {
+
+	auto* e = new Enemy();
+	e->Initialize(enemyModel_, &camera_, pos);
+	e->SetTexture(enemyTex);
+
+	e->SetMapChipField(mapChipField_);
+	e->SetBlocksAreRed(blocksAreRed_);
+
+	enemies_.push_back(e);
+	return e;
+}
+
+Enemy* GameScene::SpawnEnemyGridByBlocks(uint32_t gx, uint32_t gy, int yBlocksOffset) {
+
+	const float yOffset = static_cast<float>(yBlocksOffset) * MapChipField::kBlockHeight;
+	return SpawnEnemyGrid(gx, gy, yOffset);
+}
+
+void GameScene::SpawnBlockBreakEffect(uint32_t x, uint32_t y, uint32_t tex, Model* model) {
+
+	Vector3 center = mapChipField_->GetMapChipPositionByIndex(x, y);
+
+	const float pieceScale = 0.25f;
+	const float side = 2.5f;
+	const float up = 6.5f;
+	const float life = 2.0f;
+
+	const Vector3 offsets[4] = {
+	    {-0.20f, +0.20f, 0.0f},
+	    {+0.20f, +0.20f, 0.0f},
+	    {-0.20f, -0.20f, 0.0f},
+	    {+0.20f, -0.20f, 0.0f},
+	};
+
+	const Vector3 vels[4] = {
+	    {-side, +up,         0.0f},
+	    {+side, +up,         0.0f},
+	    {-side, +up * 0.75f, 0.0f},
+	    {+side, +up * 0.75f, 0.0f},
+	};
+
+	const Vector3 rotVels[4] = {
+	    {0.0f, 0.0f, +6.0f},
+	    {0.0f, 0.0f, -6.0f},
+	    {0.0f, 0.0f, +8.0f},
+	    {0.0f, 0.0f, -8.0f},
+	};
+
+	for (int i = 0; i < 4; ++i) {
+
+		// ★ ここが大事：コピーしない
+		breakPieces_.emplace_back();
+		BreakPiece& p = breakPieces_.back();
+
+		p.alive = true;
+		p.life = life;
+		p.tex = tex;
+		p.model = model;
+
+		p.wt.Initialize();
+		p.wt.translation_ = {center.x + offsets[i].x, center.y + offsets[i].y, center.z + offsets[i].z};
+		p.wt.rotation_ = {0, 0, 0};
+		p.wt.scale_ = {pieceScale, pieceScale, pieceScale};
+
+		p.wt.translation_ = {center.x + offsets[i].x, center.y + offsets[i].y, center.z + offsets[i].z};
+		p.wt.translation_.z -= 0.05f; // ★ちょい手前（左手座標系のまま）
+
+		p.vel = vels[i];
+		p.rotVel = rotVels[i];
+
+		p.wt.matWorld_ = MakeAffineMatrix(p.wt.scale_, p.wt.rotation_, p.wt.translation_);
+		p.wt.TransferMatrix();
+	}
+}
+
+void GameScene::UpdateBlockBreakPieces(float dt) {
+
+	const float g = 18.0f;
+
+	for (auto& p : breakPieces_) {
+		if (!p.alive) {
+			continue;
+		}
+
+		p.life -= dt;
+		if (p.life <= 0.0f) {
+			p.alive = false;
+			continue;
+		}
+
+		p.vel.y -= g * dt;
+
+		p.wt.translation_.x += p.vel.x * dt;
+		p.wt.translation_.y += p.vel.y * dt;
+		p.wt.translation_.z += p.vel.z * dt;
+
+		p.wt.rotation_.x += p.rotVel.x * dt;
+		p.wt.rotation_.y += p.rotVel.y * dt;
+		p.wt.rotation_.z += p.rotVel.z * dt;
+
+		p.wt.matWorld_ = MakeAffineMatrix(p.wt.scale_, p.wt.rotation_, p.wt.translation_);
+		p.wt.TransferMatrix();
+	}
+
+	// ★ erase/remove_if はしない（WorldTransformがコピー不可だから）
+}
+
+void GameScene::BreakChargeBlock(uint32_t x, uint32_t y) {
+	if (mapChipField_->GetMapChipTypeByIndex(x, y) != MapChipType::kChargeBreakable) {
+		return;
+	}
+
+	// ①破片生成（見た目は grass でOK）
+	SpawnBlockBreakEffect(x, y, blockTexW_, cubeModel_);
+
+	// ②マップを空にする（これが超重要：ブロック本体が残ると破片が見えないことが多い）
+	mapChipField_->SetMapChipTypeByIndex(x, y, MapChipType::kBlank);
+}

@@ -10,6 +10,8 @@ enum class MapChipType {
 	kBlock = 1,     // 普通のブロック (CSV 1)
 	kBlockRed = 2,  // 赤ブロック (CSV 2)
 	kBlockBlue = 3, // 青ブロック (CSV 3)
+	kGoal,
+	kChargeBreakable,
 };
 
 struct MapChipData
@@ -43,5 +45,5 @@ public:
 	Vector3 GetMapChipPositionByIndex(uint32_t xIndex, uint32_t yIndex);
 	IndexSet GetMapChipIndexByPosition(const Vector3& position);
 	Rect GetRectByIndex(uint32_t xIndex, uint32_t yIndex);
-	
+	void SetMapChipTypeByIndex(uint32_t xIndex, uint32_t yIndex, MapChipType type);
 };

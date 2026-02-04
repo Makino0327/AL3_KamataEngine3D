@@ -3,6 +3,8 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <unordered_map>   // ★ここに追加
+#include <cctype>          // ★Trimでisspace使うなら追加
 
 namespace {
 std::unordered_map<std::string, MapChipType> mapChipTable = {
@@ -10,7 +12,15 @@ std::unordered_map<std::string, MapChipType> mapChipTable = {
     {"1", MapChipType::kBlock},
     {"2", MapChipType::kBlockRed }, // 追加
     {"3", MapChipType::kBlockBlue}, // 追加
+    {"4", MapChipType::kGoal     },
+    {"5", MapChipType::kChargeBreakable}, // ★追加：チャージで壊せる
 };
+// ★ここに追加（mapChipTableの下あたり）
+static inline void Trim(std::string& s) {
+	auto isSpace = [](unsigned char c) { return std::isspace(c); };
+	s.erase(s.begin(), std::find_if(s.begin(), s.end(), [&](unsigned char c) { return !isSpace(c); }));
+	s.erase(std::find_if(s.rbegin(), s.rend(), [&](unsigned char c) { return !isSpace(c); }).base(), s.end());
+}
 }
 
 // マップチップデータをリセット
@@ -49,6 +59,7 @@ void MapChipField::LoadMapChipCsv(const std::string& filePath) {
 		for (uint32_t j = 0; j < kNumBlockHorizontal; ++j) {
 			std::string word;
 			std::getline(line_stream, word, ',');
+			Trim(word); 
 
 			if (mapChipTable.contains(word)) {
 				mapChipData_.data[i][j] = mapChipTable[word];
@@ -96,3 +107,12 @@ Rect MapChipField::GetRectByIndex(uint32_t xIndex, uint32_t yIndex) {
 	return rect;
 }
 
+void MapChipField::SetMapChipTypeByIndex(uint32_t xIndex, uint32_t yIndex, MapChipType type) {
+	if (xIndex >= kNumBlockHorizontal) {
+		return;
+	}
+	if (yIndex >= kNumBlockVirtical) {
+		return;
+	}
+	mapChipData_.data[yIndex][xIndex] = type;
+}
